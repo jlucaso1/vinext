@@ -187,7 +187,8 @@ type RenderPagesPageResponseOptions = {
   props?: Record<string, unknown>;
   params: Record<string, unknown>;
   query?: Record<string, unknown>;
-  bypassIsrHtmlCache?: boolean;
+  isrCachePathname?: string;
+  bypassCdnCache?: boolean;
   renderDocumentToString: (element: ReactNode) => Promise<string>;
   renderToReadableStream: (element: ReactNode) => Promise<ReadableStream<Uint8Array>>;
   resetSSRHead?: (() => void) | undefined;
@@ -599,13 +600,12 @@ export async function renderPagesPageResponse(
     // later matches the cached __NEXT_DATA__ block via a bare <script> marker.
     !options.scriptNonce &&
     options.isrRevalidateSeconds !== null &&
-    options.isrRevalidateSeconds > 0 &&
-    !options.bypassIsrHtmlCache
+    options.isrRevalidateSeconds > 0
   ) {
     const cacheBodyStreamPair = bodyStream.tee();
     responseBodyStream = cacheBodyStreamPair[0];
     const cacheBodyStream = cacheBodyStreamPair[1];
-    const isrPathname = options.routeUrl.split("?")[0];
+    const isrPathname = options.isrCachePathname ?? options.routeUrl.split("?")[0];
     const cacheKey = options.isrCacheKey("pages", isrPathname);
 
     schedulePagesIsrCacheWrite({
@@ -637,7 +637,7 @@ export async function renderPagesPageResponse(
   // this point, so the captured value matches main's original capture site.
   const userSetCacheControl = responseHeaders.has("Cache-Control");
 
-  if (options.scriptNonce || options.bypassIsrHtmlCache) {
+  if (options.scriptNonce || options.bypassCdnCache) {
     responseHeaders.set("Cache-Control", ISR_NO_STORE_CACHE_CONTROL);
   } else if (options.isrRevalidateSeconds) {
     // Fresh ISR (MISS) response: route through the CDN adapter so edge adapters

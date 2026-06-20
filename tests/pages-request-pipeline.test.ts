@@ -6,8 +6,25 @@ import {
   type MiddlewareResult,
   type PagesRenderOptions,
 } from "../packages/vinext/src/server/pages-request-pipeline.js";
+import { getPagesMiddlewareRewriteCacheState } from "../packages/vinext/src/server/pages-page-handler.js";
 
 // Helpers
+
+describe("middleware rewrite cache state", () => {
+  it("uses the normalized pathname for query-invariant rewrites", () => {
+    expect(getPagesMiddlewareRewriteCacheState("/target", true)).toEqual({
+      cachePathname: "/target",
+      bypassCdnCache: false,
+    });
+  });
+
+  it("sorts query values into an isolated cache key and bypasses CDN storage", () => {
+    expect(getPagesMiddlewareRewriteCacheState("/target?z=2&a=1", true)).toEqual({
+      cachePathname: "/target?a=1&z=2",
+      bypassCdnCache: true,
+    });
+  });
+});
 
 function makeRequest(pathname: string, headers?: Record<string, string>): Request {
   return new Request(`http://localhost${pathname}`, { headers });

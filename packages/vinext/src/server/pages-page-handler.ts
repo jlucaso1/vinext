@@ -89,6 +89,22 @@ type VinextConfigSubset = {
   disableOptimizedLoading: boolean;
 };
 
+export function getPagesMiddlewareRewriteCacheState(
+  routeUrl: string,
+  hasMiddlewareRewrite: boolean,
+): { cachePathname: string; bypassCdnCache: boolean } {
+  const url = new URL(routeUrl, "http://vinext.local");
+  if (!hasMiddlewareRewrite || !url.search) {
+    return { cachePathname: url.pathname || "/", bypassCdnCache: false };
+  }
+
+  url.searchParams.sort();
+  return {
+    cachePathname: `${url.pathname || "/"}?${url.searchParams.toString()}`,
+    bypassCdnCache: true,
+  };
+}
+
 /**
  * Options accepted by `createPagesPageHandler`.
  *
@@ -422,6 +438,7 @@ export function createPagesPageHandler(
         const pageModule = route.module;
         const query = mergeRouteParamsIntoQuery(parseQuery(routeUrl), params);
         const hasRewriteQuery = options?.hasMiddlewareRewrite === true;
+        const rewriteCacheState = getPagesMiddlewareRewriteCacheState(routeUrl, hasRewriteQuery);
         const nextDataQuery =
           typeof pageModule.getStaticProps === "function" && !hasRewriteQuery ? params : query;
 
@@ -589,7 +606,8 @@ export function createPagesPageHandler(
           params,
           query,
           nextDataQuery,
-          bypassIsrHtmlCache: hasRewriteQuery,
+          isrCachePathname: rewriteCacheState.cachePathname,
+          bypassCdnCache: rewriteCacheState.bypassCdnCache,
           asPath: renderAsPath ?? routeUrl,
           resolvedUrl: pagesResolvedUrl,
           renderIsrPassToStringAsync,
@@ -752,7 +770,8 @@ export function createPagesPageHandler(
           props: renderProps,
           params,
           query: nextDataQuery,
-          bypassIsrHtmlCache: hasRewriteQuery,
+          isrCachePathname: rewriteCacheState.cachePathname,
+          bypassCdnCache: rewriteCacheState.bypassCdnCache,
           renderDocumentToString(element) {
             return renderToStringAsync(element);
           },

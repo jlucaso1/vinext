@@ -4,7 +4,7 @@ import type { Route } from "../routing/pages-router.js";
 import { normalizeStaticPathname } from "../routing/route-pattern.js";
 import type { CachedPagesValue, CacheControlMetadata } from "vinext/shims/cache-handler";
 import { applyCdnResponseHeaders } from "./cache-control.js";
-import { decideIsr } from "./isr-decision.js";
+import { decideIsr, ISR_NO_STORE_CACHE_CONTROL } from "./isr-decision.js";
 import { buildCacheStateHeaders } from "./cache-headers.js";
 import { buildPagesCacheValue, type ISRCacheEntry } from "./isr-cache.js";
 import {
@@ -199,7 +199,8 @@ export type ResolvePagesPageDataOptions = {
   params: Record<string, unknown>;
   query: Record<string, unknown>;
   nextDataQuery?: Record<string, unknown>;
-  bypassIsrHtmlCache?: boolean;
+  isrCachePathname?: string;
+  bypassCdnCache?: boolean;
   asPath?: string;
   resolvedUrl?: string;
   route: Pick<Route, "isDynamic">;
@@ -483,6 +484,7 @@ function buildPagesCacheResponse(
   expireSeconds?: number,
   cacheControl?: CacheControlMetadata,
   status?: number,
+  bypassCdnCache?: boolean,
 ): Response {
   // Legacy cache entries written before cacheControl metadata existed can still
   // hit this path without a persisted revalidate value; keep the historic
@@ -502,7 +504,11 @@ function buildPagesCacheResponse(
     "Content-Type": "text/html",
     ...buildCacheStateHeaders(cacheState),
   });
-  applyCdnResponseHeaders(headers, { cacheControl: cacheControlHeader });
+  if (bypassCdnCache) {
+    headers.set("Cache-Control", ISR_NO_STORE_CACHE_CONTROL);
+  } else {
+    applyCdnResponseHeaders(headers, { cacheControl: cacheControlHeader });
+  }
 
   if (fontLinkHeader) {
     headers.set("Link", fontLinkHeader);
@@ -680,10 +686,8 @@ export async function resolvePagesPageData(
   }
 
   if (isFallback) {
-    const pathname = options.routeUrl.split("?")[0];
-    const cached = options.bypassIsrHtmlCache
-      ? null
-      : await options.isrGet(options.isrCacheKey("pages", pathname));
+    const pathname = options.isrCachePathname ?? options.routeUrl.split("?")[0];
+    const cached = await options.isrGet(options.isrCacheKey("pages", pathname));
     if (cached?.value.value?.kind !== "PAGES") {
       const appShortCircuit = await loadForegroundAppInitialRenderProps();
       if (appShortCircuit) return appShortCircuit;
@@ -766,9 +770,9 @@ export async function resolvePagesPageData(
   let isrRevalidateSeconds: number | null = null;
 
   if (typeof options.pageModule.getStaticProps === "function") {
-    const pathname = options.routeUrl.split("?")[0];
+    const pathname = options.isrCachePathname ?? options.routeUrl.split("?")[0];
     const cacheKey = options.isrCacheKey("pages", pathname);
-    const cached = options.bypassIsrHtmlCache ? null : await options.isrGet(cacheKey);
+    const cached = await options.isrGet(cacheKey);
     const cachedValue = cached?.value.value;
 
     // On-demand revalidation (`res.revalidate()`) must regenerate the entry
@@ -794,6 +798,7 @@ export async function resolvePagesPageData(
         options.expireSeconds,
         cached.value.cacheControl,
         cachedValue.status,
+        options.bypassCdnCache,
       );
       // Bot / crawler ETag consistency: attach an ETag to cache-HIT responses
       // for bot UAs so they are consistent with fresh-MISS bot responses (which
@@ -901,6 +906,7 @@ export async function resolvePagesPageData(
         options.expireSeconds,
         cached.value.cacheControl,
         cachedValue.status,
+        options.bypassCdnCache,
       );
       // Bot / crawler ETag consistency: same as the HIT branch — attach an
       // ETag to STALE responses for bot UAs and honour If-None-Match / 304.
@@ -977,7 +983,7 @@ export async function resolvePagesPageData(
       isrRevalidateSeconds = cached?.value.cacheControl?.revalidate ?? 31_536_000;
     }
 
-    if (shouldPersistFallbackData && !options.bypassIsrHtmlCache) {
+    if (shouldPersistFallbackData) {
       const revalidateSeconds = isrRevalidateSeconds ?? 31_536_000;
       await options.isrSet(
         cacheKey,
