@@ -4397,6 +4397,36 @@ describe("app browser entry previousNextUrl helpers", () => {
     ]);
   });
 
+  it("installs fresh same-layout output on refresh commits", async () => {
+    const previousLayout = React.createElement("div", null, "previous layout");
+    const nextLayout = React.createElement("div", null, "refreshed layout");
+    const state = createState({
+      bfcacheIds: { "layout:/": "0" },
+      elements: createResolvedElements(
+        "route:/dashboard",
+        "/",
+        null,
+        { "layout:/": previousLayout },
+        ["layout:/"],
+      ),
+      layoutIds: ["layout:/"],
+      routeId: "route:/dashboard",
+    });
+
+    const nextState = await applyApprovedTestCommit(state, {
+      extraEntries: {
+        "layout:/": nextLayout,
+        "page:/dashboard": React.createElement("main", null, "dashboard"),
+      },
+      layoutIds: ["layout:/"],
+      operationLane: "refresh",
+      rootLayoutTreePath: "/",
+      routeId: "route:/dashboard",
+    });
+
+    expect(nextState.elements["layout:/"]).toBe(nextLayout);
+  });
+
   it("installs fresh dynamic layout output when its bound segment identity changes", async () => {
     const previousLayout = React.createElement("div", null, "hello-world layout");
     const nextLayout = React.createElement("div", null, "getting-started layout");
