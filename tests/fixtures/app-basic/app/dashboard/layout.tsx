@@ -13,6 +13,7 @@ export default function DashboardLayout({
 }) {
   return (
     <div id="dashboard-layout">
+      <span data-testid="dashboard-layout-render-id">{Math.random().toString(36).slice(2)}</span>
       <nav>
         <span>Dashboard Nav</span>
         <Link href="/dashboard" data-testid="dash-home-link">

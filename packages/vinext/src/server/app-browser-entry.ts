@@ -352,8 +352,11 @@ function waitForRscHmrSettle(delayMs = RSC_HMR_SETTLE_DELAY_MS): Promise<void> {
   });
 }
 
-function restoreHistoryStateSnapshot(historyState: unknown): boolean {
-  const navId = browserNavigationController.getActiveNavigationId();
+function restoreHistoryStateSnapshot(
+  historyState: unknown,
+  navId: number,
+  onApprovedBeforeCommit?: () => void,
+): boolean {
   let restored = false;
   flushSync(() => {
     restored = historyController.restoreHistorySnapshot({
@@ -361,7 +364,10 @@ function restoreHistoryStateSnapshot(historyState: unknown): boolean {
       stageClientParams,
       approveVisibleRestore: ({ state, beforeCommit }) =>
         browserNavigationController.restoreHistorySnapshotVisibleState({
-          beforeCommit,
+          beforeCommit: () => {
+            onApprovedBeforeCommit?.();
+            beforeCommit();
+          },
           navId,
           state,
           targetHref: window.location.href,
@@ -370,7 +376,7 @@ function restoreHistoryStateSnapshot(historyState: unknown): boolean {
   });
   if (!restored) return false;
 
-  commitClientNavigationState();
+  commitClientNavigationState(navId);
   return true;
 }
 
@@ -1689,6 +1695,11 @@ function bootstrapHydration(rscStream: ReadableStream<Uint8Array>): void {
 
   let activeNavigationAbortController: AbortController | null = null;
 
+  function abortSupersededNavigation(): void {
+    activeNavigationAbortController?.abort();
+    activeNavigationAbortController = null;
+  }
+
   const navigateRsc: NavigationRuntimeNavigate = async function navigateRsc(
     href: string,
     redirectDepth = 0,
@@ -1700,7 +1711,7 @@ function bootstrapHydration(rscStream: ReadableStream<Uint8Array>): void {
     scrollIntent?: AppRouterScrollIntent | null,
     visibleCommitMode: NavigationRuntimeVisibleCommitMode = "transition",
   ): Promise<void> {
-    activeNavigationAbortController?.abort();
+    abortSupersededNavigation();
     const navigationAbortController = new AbortController();
     activeNavigationAbortController = navigationAbortController;
     let pendingRouterState: PendingBrowserRouterState | null = null;
@@ -2295,27 +2306,14 @@ function bootstrapHydration(rscStream: ReadableStream<Uint8Array>): void {
       restorePopstateScrollPosition(event.state);
       return;
     }
-    handlePopstate(event);
-    // Synchronous snapshot restore supersedes the in-flight async RSC traverse.
-    //
-    // handlePopstate calls navigate() which starts an async RSC traversal:
-    // renderNavigationPayload captures startedState (visibleCommitVersion N)
-    // and awaits nextElements, yielding at least one microtask.
-    //
-    // restoreHistoryStateSnapshot runs synchronously (flushSync, no await) in
-    // the same task, commits the cached history snapshot, and bumps
-    // visibleCommitVersion to N+1.
-    //
-    // When the async traverse resolves,
-    // resolvePendingNavigationCommitDispositionDecision sees
-    // startedVisibleCommitVersion (N) !== currentState.visibleCommitVersion
-    // (N+1) and returns staleOperation → no-commit, discarding the fresh
-    // RSC payload in favor of the cached client snapshot.
-    //
-    // This matches Next's in-memory bfcache behaviour (no refetch on back).
-    // The ordering is deterministic only because restoreHistoryStateSnapshot
-    // is synchronous while the async traverse always yields.
-    if (restoreHistoryStateSnapshot(event.state)) {
+    const snapshotNavigationId = browserNavigationController.beginNavigation();
+    if (
+      restoreHistoryStateSnapshot(event.state, snapshotNavigationId, () => {
+        abortSupersededNavigation();
+        notifyAppRouterTransitionStart(href, "traverse");
+      })
+    ) {
+      window.__VINEXT_RSC_PENDING__ = null;
       restoreSynchronousPopstateScrollPosition(
         {
           getActiveNavigationId: () => browserNavigationController.getActiveNavigationId(),
@@ -2327,7 +2325,11 @@ function bootstrapHydration(rscStream: ReadableStream<Uint8Array>): void {
         },
         event.state,
       );
+      browserNavigationController.finalizeNavigation(snapshotNavigationId, null);
+      return;
     }
+    browserNavigationController.finalizeNavigation(snapshotNavigationId, null);
+    handlePopstate(event);
   });
 
   if (import.meta.hot) {
