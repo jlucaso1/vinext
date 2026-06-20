@@ -179,6 +179,7 @@ export type CreatePagesPageHandlerOptions = {
 // Internal render options (mirrors the options shape passed to `renderPage`).
 type RenderPageOptions = {
   isDataReq?: boolean;
+  hasMiddlewareRewrite?: boolean;
   statusCode?: number;
   asPath?: string;
   originalUrl?: string;
@@ -418,13 +419,16 @@ export function createPagesPageHandler(
         const routePattern = patternToNextFormat(route.pattern);
         const renderStatusCode =
           renderStatusCodeOverride ?? (routePattern === "/404" ? 404 : undefined);
+        const pageModule = route.module;
         const query = mergeRouteParamsIntoQuery(parseQuery(routeUrl), params);
+        const hasRewriteQuery = options?.hasMiddlewareRewrite === true;
+        const nextDataQuery =
+          typeof pageModule.getStaticProps === "function" && !hasRewriteQuery ? params : query;
 
         // Model Pages Router readiness for `next/navigation` compat hooks. The
         // serialized `__NEXT_DATA__` flags (gssp/gsp/gip/appGip/autoExport) plus
         // the configured-rewrites flag decide the initial `router.isReady` value,
         // mirroring Next.js's Pages adapter. See server/render.tsx readiness rule.
-        const pageModule = route.module;
         const pagesNextData = buildPagesReadinessNextData({
           pageModule,
           appComponent: AppComponent as { getInitialProps?: unknown } | null,
@@ -584,6 +588,8 @@ export function createPagesPageHandler(
           AppComponent,
           params,
           query,
+          nextDataQuery,
+          bypassIsrHtmlCache: hasRewriteQuery,
           asPath: renderAsPath ?? routeUrl,
           resolvedUrl: pagesResolvedUrl,
           renderIsrPassToStringAsync,
@@ -745,7 +751,8 @@ export function createPagesPageHandler(
           pageProps,
           props: renderProps,
           params,
-          query,
+          query: nextDataQuery,
+          bypassIsrHtmlCache: hasRewriteQuery,
           renderDocumentToString(element) {
             return renderToStringAsync(element);
           },

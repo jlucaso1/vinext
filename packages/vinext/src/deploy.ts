@@ -557,7 +557,6 @@ import type { PagesPipelineDeps } from "vinext/server/pages-request-pipeline";
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES, isImageOptimizationPath } from "vinext/server/image-optimization";
 import type { ImageConfig } from "vinext/server/image-optimization";
 import { cloneRequestWithHeaders, cloneRequestWithUrl, filterInternalHeaders, isOpenRedirectShaped } from "vinext/server/request-pipeline";
-import { notFoundStaticAssetResponse } from "vinext/server/http-error-responses";
 import { assetPrefixPathname, isNextStaticPath } from "vinext/utils/asset-prefix";
 import { hasBasePath, stripBasePath } from "vinext/utils/base-path";
 
@@ -622,9 +621,7 @@ export default {
       // by Cloudflare's ASSETS binding BEFORE the worker runs; only misses
       // reach this code. Matches Next.js (#1337):
       //   packages/next/src/server/lib/router-server.ts
-      if (isNextStaticPath(pathname, basePath, assetPathPrefix)) {
-        return notFoundStaticAssetResponse();
-      }
+      const initialStaticAssetMiss = isNextStaticPath(pathname, basePath, assetPathPrefix);
 
       // Strip internal headers from inbound requests so they cannot be
       // forged to influence routing or impersonate internal state.
@@ -685,6 +682,8 @@ export default {
         configRewrites,
         configHeaders,
         hadBasePath,
+        assetPathPrefix,
+        initialStaticAssetMiss,
         isDataReq,
         isDataRequest: isDataReq,
         ctx,

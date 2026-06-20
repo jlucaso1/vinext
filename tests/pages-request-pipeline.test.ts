@@ -183,7 +183,7 @@ describe("middleware", () => {
     expect(renderPage).toHaveBeenCalledWith(
       expect.any(Request),
       "/bar",
-      undefined,
+      { hasMiddlewareRewrite: true },
       expect.any(Headers),
     );
   });
@@ -603,6 +603,72 @@ describe("serveFilesystemRoute", () => {
       { "set-cookie": ["a=1"] },
       "direct",
     );
+  });
+
+  it("keeps a plain static 404 with middleware response state when the asset miss is not rewritten", async () => {
+    const renderPage = makeRenderPage(200);
+    const result = await runPagesRequest(
+      makeRequest("/_next/static/chunks/pages/missing.js"),
+      baseDeps({
+        initialStaticAssetMiss: true,
+        runMiddleware: makeMiddleware({
+          status: 418,
+          responseHeaders: [["x-from-middleware", "yes"]],
+        }),
+        renderPage,
+      }),
+    );
+
+    expect(result.type).toBe("response");
+    if (result.type !== "response") return;
+    expect(result.response.status).toBe(418);
+    expect(result.response.headers.get("x-from-middleware")).toBe("yes");
+    await expect(result.response.text()).resolves.toBe("Not Found");
+    expect(renderPage).not.toHaveBeenCalled();
+  });
+
+  it("re-probes a middleware rewrite target after an initial static asset miss", async () => {
+    const serveFilesystemRoute = vi.fn(async () => true);
+    const result = await runPagesRequest(
+      makeRequest("/_next/static/chunks/pages/missing.js"),
+      baseDeps({
+        initialStaticAssetMiss: true,
+        runMiddleware: makeMiddleware({ rewriteUrl: "/about" }),
+        serveFilesystemRoute,
+      }),
+    );
+
+    expect(result.type).toBe("handled");
+    expect(serveFilesystemRoute).toHaveBeenCalledWith("/about", {}, "middlewareRewrite");
+  });
+
+  it("keeps a plain static 404 when middleware rewrites the miss to another missing asset", async () => {
+    const renderPage = makeRenderPage(200);
+    const serveFilesystemRoute = vi.fn(async () => false);
+    const result = await runPagesRequest(
+      makeRequest("/_next/static/chunks/pages/missing.js"),
+      baseDeps({
+        initialStaticAssetMiss: true,
+        runMiddleware: makeMiddleware({
+          rewriteUrl: "/_next/static/chunks/pages/also-missing.js",
+          responseHeaders: [["x-from-middleware", "yes"]],
+        }),
+        serveFilesystemRoute,
+        renderPage,
+      }),
+    );
+
+    expect(result.type).toBe("response");
+    if (result.type !== "response") return;
+    expect(serveFilesystemRoute).toHaveBeenCalledWith(
+      "/_next/static/chunks/pages/also-missing.js",
+      { "x-from-middleware": "yes" },
+      "middlewareRewrite",
+    );
+    expect(result.response.status).toBe(404);
+    expect(result.response.headers.get("x-from-middleware")).toBe("yes");
+    await expect(result.response.text()).resolves.toBe("Not Found");
+    expect(renderPage).not.toHaveBeenCalled();
   });
 
   it("runs after middleware — a middleware redirect wins over a public file", async () => {

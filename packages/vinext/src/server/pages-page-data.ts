@@ -124,6 +124,8 @@ type RenderPagesIsrHtmlOptions = {
   pageProps: Record<string, unknown>;
   props?: Record<string, unknown>;
   params: Record<string, unknown>;
+  query: Record<string, unknown>;
+  nextDataQuery?: Record<string, unknown>;
   renderIsrPassToStringAsync: (element: ReactNode) => Promise<string>;
   routePattern: string;
   safeJsonStringify: (value: unknown) => string;
@@ -196,6 +198,8 @@ export type ResolvePagesPageDataOptions = {
   AppComponent?: unknown;
   params: Record<string, unknown>;
   query: Record<string, unknown>;
+  nextDataQuery?: Record<string, unknown>;
+  bypassIsrHtmlCache?: boolean;
   asPath?: string;
   resolvedUrl?: string;
   route: Pick<Route, "isDynamic">;
@@ -587,6 +591,7 @@ export async function renderPagesIsrHtml(options: RenderPagesIsrHtmlOptions): Pr
     pageProps: options.pageProps,
     props: renderProps,
     params: options.params,
+    query: options.nextDataQuery ?? options.params,
     routePattern: options.routePattern,
     safeJsonStringify: options.safeJsonStringify,
     // Serialize the same readiness flags (gssp/gsp/autoExport/…) the initial
@@ -676,7 +681,9 @@ export async function resolvePagesPageData(
 
   if (isFallback) {
     const pathname = options.routeUrl.split("?")[0];
-    const cached = await options.isrGet(options.isrCacheKey("pages", pathname));
+    const cached = options.bypassIsrHtmlCache
+      ? null
+      : await options.isrGet(options.isrCacheKey("pages", pathname));
     if (cached?.value.value?.kind !== "PAGES") {
       const appShortCircuit = await loadForegroundAppInitialRenderProps();
       if (appShortCircuit) return appShortCircuit;
@@ -761,7 +768,7 @@ export async function resolvePagesPageData(
   if (typeof options.pageModule.getStaticProps === "function") {
     const pathname = options.routeUrl.split("?")[0];
     const cacheKey = options.isrCacheKey("pages", pathname);
-    const cached = await options.isrGet(cacheKey);
+    const cached = options.bypassIsrHtmlCache ? null : await options.isrGet(cacheKey);
     const cachedValue = cached?.value.value;
 
     // On-demand revalidation (`res.revalidate()`) must regenerate the entry
@@ -860,6 +867,8 @@ export async function resolvePagesPageData(
                 pageProps: freshPageProps,
                 props: freshRenderProps,
                 params: options.params,
+                query: options.query,
+                nextDataQuery: options.nextDataQuery,
                 renderIsrPassToStringAsync: options.renderIsrPassToStringAsync,
                 routePattern: options.routePattern,
                 safeJsonStringify: options.safeJsonStringify,
@@ -968,7 +977,7 @@ export async function resolvePagesPageData(
       isrRevalidateSeconds = cached?.value.cacheControl?.revalidate ?? 31_536_000;
     }
 
-    if (shouldPersistFallbackData) {
+    if (shouldPersistFallbackData && !options.bypassIsrHtmlCache) {
       const revalidateSeconds = isrRevalidateSeconds ?? 31_536_000;
       await options.isrSet(
         cacheKey,

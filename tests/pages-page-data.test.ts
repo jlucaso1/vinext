@@ -97,6 +97,8 @@ describe("pages page data", () => {
       },
       pageProps: { title: "fresh" },
       params: { slug: "post" },
+      query: { from: "middleware", slug: "post" },
+      nextDataQuery: { from: "middleware", slug: "post" },
       renderIsrPassToStringAsync: vi.fn(async () => "<div>fresh-body</div>"),
       routePattern: "/posts/[slug]",
       safeJsonStringify(value: unknown) {
@@ -108,9 +110,64 @@ describe("pages page data", () => {
     expect(html).toContain("<div>fresh-body</div>");
     expect(html).toContain('<aside data-gap="1"></aside>');
     expect(html).toContain('<script src="/tail.js"></script>');
+    expect(html).toContain('"query":{"from":"middleware","slug":"post"}');
     expect(html).toContain('"page":"/posts/[slug]"');
     expect(html).toContain('"slug":"post"');
     expect(html).toContain('"__vinext":{"hasMiddleware":true}');
+  });
+
+  it("bypasses pathname-only ISR cache entries for request-specific query values", async () => {
+    const isrGet = vi.fn().mockResolvedValue({
+      isStale: false,
+      value: {
+        cacheControl: { revalidate: 60 },
+        value: {
+          kind: "PAGES",
+          html: "<html>cached</html>",
+          pageData: { pageProps: { cached: true } },
+        },
+      },
+    });
+
+    const result = await resolvePagesPageData(
+      createOptions({
+        isrGet,
+        pageModule: {
+          getStaticProps() {
+            return { props: { fresh: true }, revalidate: 60 };
+          },
+        },
+        query: { from: "middleware", slug: "post" },
+        bypassIsrHtmlCache: true,
+        nextDataQuery: { from: "middleware", slug: "post" },
+      }),
+    );
+
+    expect(isrGet).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ kind: "render", pageProps: { fresh: true } });
+  });
+
+  it("does not persist fallback data for a middleware-rewritten SSG request", async () => {
+    const isrSet = vi.fn(async () => {});
+    await resolvePagesPageData(
+      createOptions({
+        bypassIsrHtmlCache: true,
+        isDataReq: true,
+        isrSet,
+        pageModule: {
+          default: function Page() {},
+          getStaticPaths() {
+            return { fallback: true, paths: [] };
+          },
+          getStaticProps() {
+            return { props: { fresh: true }, revalidate: 60 };
+          },
+        },
+        route: { isDynamic: true },
+      }),
+    );
+
+    expect(isrSet).not.toHaveBeenCalled();
   });
 
   it("preserves custom app props in fallback shells", async () => {

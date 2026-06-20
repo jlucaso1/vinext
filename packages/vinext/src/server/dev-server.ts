@@ -474,6 +474,7 @@ export function createSSRHandler(
      */
     isDataReq: boolean = false,
     originalUrl: string = url,
+    hasMiddlewareRewrite = false,
   ): Promise<void> => {
     const _reqStart = now();
     let _compileEnd: number | undefined;
@@ -617,6 +618,8 @@ export function createSSRHandler(
         // Load the page module through Vite's SSR pipeline
         // This gives us HMR and transform support for free
         const pageModule = await importModule(runner, route.filePath);
+        const nextDataQuery =
+          typeof pageModule.getStaticProps === "function" && !hasMiddlewareRewrite ? params : query;
         // Try to load _app.tsx if it exists. This happens before the readiness
         // predicate so app-level getInitialProps participates in the same
         // initial Pages Router state as the client __NEXT_DATA__ payload.
@@ -783,7 +786,7 @@ export function createSSRHandler(
           const isBotRequest = !!userAgent && isBotUserAgent(userAgent, htmlLimitedBots);
           if (fallback === true && !isValidPath && !isDataReq && !isBotRequest) {
             const fallbackCacheKey = pagesIsrCacheKey(url.split("?")[0]);
-            const generatedEntry = await isrGet(fallbackCacheKey);
+            const generatedEntry = hasMiddlewareRewrite ? null : await isrGet(fallbackCacheKey);
             isFallbackRender = generatedEntry?.value.value?.kind !== "PAGES";
             if (isFallbackRender && typeof routerShim.setSSRContext === "function") {
               routerShim.setSSRContext({
@@ -991,7 +994,11 @@ export function createSSRHandler(
           // Font modules not loaded yet — skip
         }
 
-        if (typeof pageModule.getStaticProps === "function" && !isFallbackRender) {
+        if (
+          typeof pageModule.getStaticProps === "function" &&
+          !isFallbackRender &&
+          !hasMiddlewareRewrite
+        ) {
           // Check ISR cache before calling getStaticProps
           const cacheKey = pagesIsrCacheKey(url.split("?")[0]);
           const cached = await isrGet(cacheKey);
@@ -1234,7 +1241,7 @@ export function createSSRHandler(
                         {
                           props: freshRenderProps,
                           page: patternToNextFormat(route.pattern),
-                          query: params,
+                          query: nextDataQuery,
                           buildId: process.env.__VINEXT_BUILD_ID,
                           isFallback: false,
                           locale: locale ?? currentDefaultLocale,
@@ -1422,7 +1429,7 @@ export function createSSRHandler(
         // by getServerSideProps (cookies, status codes, etc.) are preserved
         // because we already let gSSP mutate `res` above.
         if (isDataReq) {
-          if (shouldPersistFallbackData) {
+          if (shouldPersistFallbackData && !hasMiddlewareRewrite) {
             const cacheKey = pagesIsrCacheKey(url.split("?")[0]);
             const revalidateSeconds = isrRevalidateSeconds ?? 31_536_000;
             await isrSet(
@@ -1657,7 +1664,7 @@ hydrate();
           {
             props: renderProps,
             page: patternToNextFormat(route.pattern),
-            query: params,
+            query: nextDataQuery,
             buildId: process.env.__VINEXT_BUILD_ID,
             isFallback: isFallbackRender,
             locale: locale ?? currentDefaultLocale,
@@ -1699,7 +1706,7 @@ hydrate();
           ...gsspExtraHeaders,
         };
         if (isrRevalidateSeconds) {
-          if (scriptNonce) {
+          if (scriptNonce || hasMiddlewareRewrite) {
             extraHeaders["Cache-Control"] = ISR_NO_STORE_CACHE_CONTROL;
           } else {
             extraHeaders["Cache-Control"] = buildMissIsrCacheControl(isrRevalidateSeconds);
@@ -1798,7 +1805,12 @@ hydrate();
         // If ISR is enabled, we need the full HTML for caching.
         // For ISR, re-render synchronously to get the complete HTML string.
         // This runs after the stream is already sent, so it doesn't affect TTFB.
-        if (!scriptNonce && isrRevalidateSeconds !== null && isrRevalidateSeconds > 0) {
+        if (
+          !scriptNonce &&
+          isrRevalidateSeconds !== null &&
+          isrRevalidateSeconds > 0 &&
+          !hasMiddlewareRewrite
+        ) {
           let isrElement = AppComponent
             ? createElement(AppComponent, {
                 ...renderProps,

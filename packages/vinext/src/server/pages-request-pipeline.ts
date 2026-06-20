@@ -36,18 +36,26 @@ import {
 } from "./request-pipeline.js";
 import type { HeaderRecord } from "./request-pipeline.js";
 import { mergeHeaders } from "./worker-utils.js";
+import { notFoundStaticAssetResponse } from "./http-error-responses.js";
 import { normalizeDefaultLocalePathname, stripI18nLocaleForApiRoute } from "./pages-i18n.js";
 import { mergeRewriteQuery } from "../utils/query.js";
 import { addBasePathToPathname, hasBasePath } from "../utils/base-path.js";
+import { isNextStaticPath } from "../utils/asset-prefix.js";
 
 // All "render options" that are passed through to the renderPage callback
 export type PagesRenderOptions = {
   isDataReq?: boolean;
+  hasMiddlewareRewrite?: boolean;
   renderErrorPageOnMiss?: boolean;
   originalUrl?: string;
 };
 
-export type FilesystemRoutePhase = "direct" | "beforeFiles" | "afterFiles" | "fallback";
+export type FilesystemRoutePhase =
+  | "direct"
+  | "middlewareRewrite"
+  | "beforeFiles"
+  | "afterFiles"
+  | "fallback";
 
 export async function fetchWorkerFilesystemRoute(
   request: Request,
@@ -98,6 +106,8 @@ export type PagesPipelineDeps = {
 
   // Pre-computed per-request values (adapter sets these)
   hadBasePath: boolean; // adapter computes: !basePath || hasBasePath(originalPathname, basePath)
+  assetPathPrefix?: string;
+  initialStaticAssetMiss?: boolean;
   isDataReq: boolean; // true if this was a /_next/data/ request (already normalized by adapter)
   isDataRequest: boolean; // trusted data classification for middleware protocol handling
   ctx?: unknown; // Cloudflare ExecutionContext or undefined (for Node)
@@ -304,6 +314,7 @@ export async function runPagesRequest(
   // Step 5: Middleware
   const originalResolvedUrl = pathname + search;
   let resolvedUrl = originalResolvedUrl;
+  let middlewareRewriteFired = false;
   const middlewareHeaders: HeaderRecord = {};
   let middlewareStatus: number | undefined;
   const serveFilesystemRoute = async (
@@ -395,6 +406,7 @@ export async function runPagesRequest(
 
     if (result.rewriteUrl) {
       resolvedUrl = result.rewriteUrl;
+      middlewareRewriteFired = true;
     }
 
     // Reconciled superset: result.status takes priority over result.rewriteStatus
@@ -444,13 +456,31 @@ export async function runPagesRequest(
     };
   }
 
+  const staticAssetNotFoundResponse = (): PagesPipelineResult => ({
+    type: "response",
+    response: mergeHeaders(notFoundStaticAssetResponse(), middlewareHeaders, middlewareStatus),
+  });
+  const isStaticAssetPath = (value: string): boolean =>
+    isNextStaticPath(value, "", "") ||
+    (!!deps.assetPathPrefix && isNextStaticPath(value, "", deps.assetPathPrefix));
+
+  if (deps.initialStaticAssetMiss && !middlewareRewriteFired) {
+    return staticAssetNotFoundResponse();
+  }
+
   // Step 8b: Public-directory static files (post-middleware).
   // Served after middleware so middleware can intercept/redirect public files, and
   // before rewrites so a real public file wins over a fallback rewrite — matching the
   // pre-refactor prod-server ordering. Adapter callbacks own their path guards;
   // a true result means Node already wrote the response.
-  const directFilesystemResult = await serveFilesystemRoute(pathname, "direct");
+  const directFilesystemResult = await serveFilesystemRoute(
+    middlewareRewriteFired ? resolvedPathname : pathname,
+    middlewareRewriteFired ? "middlewareRewrite" : "direct",
+  );
   if (directFilesystemResult) return directFilesystemResult;
+  if (deps.initialStaticAssetMiss && isStaticAssetPath(resolvedPathname)) {
+    return staticAssetNotFoundResponse();
+  }
 
   // Step 9: beforeFiles rewrites
   // Next.js server-utils.ts applies every beforeFiles rule in sequence and
@@ -612,11 +642,17 @@ export async function runPagesRequest(
     // All adapters normalize real `/_next/data/` URLs before this point.
     const shouldDeferErrorPageOnMiss =
       !isDataReq && !isDataRequest && !!deps.matchPageRoute && !renderPageMatch;
-    const initialRenderOptions: PagesRenderOptions | undefined = shouldDeferErrorPageOnMiss
-      ? { renderErrorPageOnMiss: false }
-      : isDataReq
-        ? { isDataReq: true }
-        : undefined;
+    const buildRenderOptions = (extra?: PagesRenderOptions): PagesRenderOptions | undefined => {
+      if (!isDataReq && !middlewareRewriteFired && !extra) return undefined;
+      return {
+        ...(isDataReq ? { isDataReq: true } : {}),
+        ...(middlewareRewriteFired ? { hasMiddlewareRewrite: true } : {}),
+        ...extra,
+      };
+    };
+    const initialRenderOptions = buildRenderOptions(
+      shouldDeferErrorPageOnMiss ? { renderErrorPageOnMiss: false } : undefined,
+    );
 
     // Convert staged middleware headers to a Web Headers object for renderPage.
     // Adapters that need to inject per-request values (e.g. CSP nonces) into the
@@ -656,7 +692,7 @@ export async function runPagesRequest(
         if (fallbackFilesystemResult) return fallbackFilesystemResult;
         const fallbackApiResult = await handleResolvedApiRoute();
         if (fallbackApiResult) return fallbackApiResult;
-        response = await deps.renderPage(request, resolvedUrl, undefined, stagedHeaders);
+        response = await deps.renderPage(request, resolvedUrl, buildRenderOptions(), stagedHeaders);
         matchedFallbackRewrite = true;
         if (response.status !== 404) break;
       }
@@ -664,7 +700,7 @@ export async function runPagesRequest(
 
     // Deferred 404 re-render
     if (response.status === 404 && shouldDeferErrorPageOnMiss && !matchedFallbackRewrite) {
-      response = await deps.renderPage(request, resolvedUrl, undefined, stagedHeaders);
+      response = await deps.renderPage(request, resolvedUrl, buildRenderOptions(), stagedHeaders);
     }
 
     const merged = mergeHeaders(response, middlewareHeaders, middlewareStatus);
@@ -716,7 +752,13 @@ export async function runPagesRequest(
   return {
     type: "render",
     resolvedUrl,
-    renderOptions: isDataReq ? { isDataReq: true } : undefined,
+    renderOptions:
+      isDataReq || middlewareRewriteFired
+        ? {
+            ...(isDataReq ? { isDataReq: true } : {}),
+            ...(middlewareRewriteFired ? { hasMiddlewareRewrite: true } : {}),
+          }
+        : undefined,
     stagedHeaders: middlewareHeaders,
     requestHeaders: request.headers,
     middlewareStatus,

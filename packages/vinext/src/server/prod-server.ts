@@ -1665,13 +1665,15 @@ async function startPagesRouterServer(options: PagesRouterServerOptions) {
     // packages/next/src/server/lib/router-server.ts.
     const staticLookupPath = stripBasePath(pathname, basePath);
     const pagesAssetLookup = resolveAppRouterAssetPath(pathname, pagesAssetPathPrefix, assetPrefix);
+    let initialStaticAssetMiss = false;
     if (pagesAssetLookup) {
       if (await tryServeStatic(req, res, clientDir, pagesAssetLookup, compress, staticCache)) {
         return;
       }
-      res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end("Not Found");
-      return;
+      initialStaticAssetMiss = true;
+      // Existing build assets bypass middleware, but a missing asset re-enters
+      // routing so middleware can rewrite the 404. Next.js exercises this for
+      // missing Pages chunks in middleware-general.
     }
 
     // ── Image optimization passthrough ──────────────────────────────
@@ -1787,6 +1789,8 @@ async function startPagesRouterServer(options: PagesRouterServerOptions) {
         configRewrites,
         configHeaders,
         hadBasePath,
+        assetPathPrefix: pagesAssetPathPrefix,
+        initialStaticAssetMiss,
         isDataReq,
         isDataRequest,
         ctx: undefined, // Node has no ExecutionContext

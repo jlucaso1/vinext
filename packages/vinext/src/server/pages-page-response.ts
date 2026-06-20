@@ -187,6 +187,7 @@ type RenderPagesPageResponseOptions = {
   props?: Record<string, unknown>;
   params: Record<string, unknown>;
   query?: Record<string, unknown>;
+  bypassIsrHtmlCache?: boolean;
   renderDocumentToString: (element: ReactNode) => Promise<string>;
   renderToReadableStream: (element: ReactNode) => Promise<ReadableStream<Uint8Array>>;
   resetSSRHead?: (() => void) | undefined;
@@ -254,6 +255,7 @@ export function buildPagesNextDataScript(
     | "pageProps"
     | "props"
     | "params"
+    | "query"
     | "routePattern"
     | "safeJsonStringify"
     | "scriptNonce"
@@ -265,7 +267,7 @@ export function buildPagesNextDataScript(
   const nextDataPayload: Record<string, unknown> = {
     props: options.props ?? { pageProps: options.pageProps },
     page: options.routePattern,
-    query: options.params,
+    query: options.query ?? options.params,
     buildId: options.buildId,
     isFallback: options.isFallback === true,
   };
@@ -483,6 +485,7 @@ export async function renderPagesPageResponse(
     pageProps: options.pageProps,
     props: renderProps,
     params: options.params,
+    query: options.query,
     routePattern: options.routePattern,
     safeJsonStringify: options.safeJsonStringify,
     scriptNonce: options.scriptNonce,
@@ -596,7 +599,8 @@ export async function renderPagesPageResponse(
     // later matches the cached __NEXT_DATA__ block via a bare <script> marker.
     !options.scriptNonce &&
     options.isrRevalidateSeconds !== null &&
-    options.isrRevalidateSeconds > 0
+    options.isrRevalidateSeconds > 0 &&
+    !options.bypassIsrHtmlCache
   ) {
     const cacheBodyStreamPair = bodyStream.tee();
     responseBodyStream = cacheBodyStreamPair[0];
@@ -633,7 +637,7 @@ export async function renderPagesPageResponse(
   // this point, so the captured value matches main's original capture site.
   const userSetCacheControl = responseHeaders.has("Cache-Control");
 
-  if (options.scriptNonce) {
+  if (options.scriptNonce || options.bypassIsrHtmlCache) {
     responseHeaders.set("Cache-Control", ISR_NO_STORE_CACHE_CONTROL);
   } else if (options.isrRevalidateSeconds) {
     // Fresh ISR (MISS) response: route through the CDN adapter so edge adapters

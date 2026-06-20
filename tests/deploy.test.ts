@@ -1328,17 +1328,14 @@ describe("generatePagesRouterWorkerEntry", () => {
   it("short-circuits invalid `_next/static/*` paths with plain-text 404", () => {
     const content = generatePagesRouterWorkerEntry();
     expect(content).toContain(
-      'import { notFoundStaticAssetResponse } from "vinext/server/http-error-responses"',
-    );
-    expect(content).toContain(
       'import { assetPrefixPathname, isNextStaticPath } from "vinext/utils/asset-prefix"',
     );
     expect(content).toContain("assetPrefixPathname(vinextConfig?.assetPrefix");
     expect(content).toContain("isNextStaticPath(pathname, basePath, assetPathPrefix)");
-    expect(content).toContain("return notFoundStaticAssetResponse();");
+    expect(content).toContain("const initialStaticAssetMiss = isNextStaticPath(");
 
-    // The short-circuit must fire BEFORE runPagesRequest (which invokes renderPage)
-    // so the rich HTML 404 is never rendered for asset misses.
+    // Static misses must be classified before the shared pipeline, which then
+    // preserves the plain 404 unless middleware rewrites the request.
     const staticPos = content.indexOf("isNextStaticPath(pathname, basePath, assetPathPrefix)");
     const pipelinePos = content.indexOf("runPagesRequest(request, deps)");
     expect(staticPos).toBeGreaterThan(-1);
@@ -1347,7 +1344,7 @@ describe("generatePagesRouterWorkerEntry", () => {
 });
 
 describe("fetchWorkerFilesystemRoute", () => {
-  it.each(["beforeFiles", "afterFiles", "fallback"] as const)(
+  it.each(["middlewareRewrite", "beforeFiles", "afterFiles", "fallback"] as const)(
     "fetches rewritten assets during %s",
     async (phase) => {
       const fetchAsset = vi.fn(

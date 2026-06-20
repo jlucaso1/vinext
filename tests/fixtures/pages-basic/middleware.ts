@@ -30,6 +30,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(new URL("/ssr", request.url));
   }
 
+  // Ported from Next.js: test/e2e/middleware-general/app/middleware.js
+  // Missing Pages chunks still reach middleware, which may rewrite the 404.
+  if (url.pathname.includes("/_next/static/chunks/pages/_app-non-existent.js")) {
+    return NextResponse.rewrite(new URL("/about", request.url));
+  }
+
   // Rewrite /mw-rewrite-query to /ssr-query — preserves the original
   // request's query params on the rewrite target so getServerSideProps
   // sees them. Middleware preserves query by mutating `request.nextUrl`
@@ -269,6 +275,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/_next/static/chunks/pages/_app-non-existent.js",
     "/api/edge-search-params",
     "/edge-api-rewrite/:path*",
     "/((?!api|_next|favicon\\.ico|mw-object-gated).*)",
