@@ -758,7 +758,7 @@ export function createSSRHandler(
               };
               if (deploymentId) notFoundHeaders[NEXTJS_DEPLOYMENT_ID_HEADER] = deploymentId;
               res.writeHead(404, notFoundHeaders);
-              res.end("{}");
+              res.end('{"notFound":true}');
               return;
             }
             await renderErrorPage(
@@ -906,7 +906,7 @@ export function createSSRHandler(
               };
               if (deploymentId) notFoundHeaders[NEXTJS_DEPLOYMENT_ID_HEADER] = deploymentId;
               res.writeHead(404, notFoundHeaders);
-              res.end("{}");
+              res.end('{"notFound":true}');
               return;
             }
             await renderErrorPage(
@@ -1342,7 +1342,7 @@ export function createSSRHandler(
               };
               if (deploymentId) notFoundHeaders[NEXTJS_DEPLOYMENT_ID_HEADER] = deploymentId;
               res.writeHead(404, notFoundHeaders);
-              res.end("{}");
+              res.end('{"notFound":true}');
               return;
             }
             await renderErrorPage(

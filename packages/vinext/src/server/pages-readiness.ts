@@ -41,11 +41,11 @@ export function buildPagesReadinessNextData(options: {
       ?.getInitialProps === "function";
   const hasAppGip = typeof options.appComponent?.getInitialProps === "function";
   return {
-    gssp: hasPageGssp,
+    gssp: hasPageGssp ? true : undefined,
     gsp: hasPageGsp ? true : undefined,
-    gip: hasPageGip,
-    appGip: hasAppGip,
-    autoExport: !hasPageGssp && !hasPageGsp && !hasPageGip && !hasAppGip,
+    gip: hasPageGip ? true : undefined,
+    appGip: hasAppGip ? true : undefined,
+    autoExport: !hasPageGssp && !hasPageGsp && !hasPageGip && !hasAppGip ? true : undefined,
     __vinext: { hasRewrites: options.hasRewrites },
   };
 }

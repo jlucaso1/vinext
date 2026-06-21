@@ -349,7 +349,7 @@ describe("pages page data", () => {
     }
     expect(result.response.status).toBe(404);
     expect(result.response.headers.get("content-type")).toBe("application/json");
-    await expect(result.response.text()).resolves.toBe("{}");
+    await expect(result.response.json()).resolves.toEqual({ notFound: true });
   });
 
   it("returns JSON 404 envelope for data requests when getStaticProps returns notFound", async () => {
@@ -370,7 +370,7 @@ describe("pages page data", () => {
     }
     expect(result.response.status).toBe(404);
     expect(result.response.headers.get("content-type")).toBe("application/json");
-    await expect(result.response.text()).resolves.toBe("{}");
+    await expect(result.response.json()).resolves.toEqual({ notFound: true });
   });
 
   it("returns JSON 404 envelope for data requests when getServerSideProps returns notFound", async () => {
@@ -391,7 +391,25 @@ describe("pages page data", () => {
     }
     expect(result.response.status).toBe(404);
     expect(result.response.headers.get("content-type")).toBe("application/json");
-    await expect(result.response.text()).resolves.toBe("{}");
+    await expect(result.response.json()).resolves.toEqual({ notFound: true });
+  });
+
+  it("allows non-JSON getServerSideProps values during production requests", async () => {
+    const date = new Date("2026-06-21T00:00:00.000Z");
+    const result = await resolvePagesPageData(
+      createOptions({
+        pageModule: {
+          async getServerSideProps() {
+            return { props: { date } };
+          },
+        },
+      }),
+    );
+
+    expect(result).toMatchObject({
+      kind: "render",
+      pageProps: { date },
+    });
   });
 
   // Refs #1543: a crawler/bot UA hitting an unlisted `fallback: true` path
@@ -1291,24 +1309,6 @@ describe("pages page data", () => {
       ),
     ).rejects.toThrow(
       /Error serializing `\.date` returned from `getStaticProps` in "\/non-json"\.\s*Reason: `object` \("\[object Date\]"\) cannot be serialized as JSON/,
-    );
-  });
-
-  it("throws a Next.js-style error when getServerSideProps returns non-serializable props", async () => {
-    await expect(
-      resolvePagesPageData(
-        createOptions({
-          pageModule: {
-            async getServerSideProps() {
-              return { props: { fn: () => "nope" } };
-            },
-          },
-          routePattern: "/gssp-bad",
-          routeUrl: "/gssp-bad",
-        }),
-      ),
-    ).rejects.toThrow(
-      /Error serializing `\.fn` returned from `getServerSideProps` in "\/gssp-bad"\.\s*Reason: `function` cannot be serialized as JSON/,
     );
   });
 

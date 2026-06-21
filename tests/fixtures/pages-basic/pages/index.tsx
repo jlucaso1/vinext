@@ -10,6 +10,12 @@ export default function Home() {
       <h1>Hello, vinext!</h1>
       <p>This is a Pages Router app running on Vite.</p>
       <Link href="/about">Go to About</Link>
+      <Link id="gssp-not-found" href="/gssp-not-found?hiding=true">
+        GSSP not found
+      </Link>
+      <Link id="gssp-dynamic-not-found" href="/gssp-not-found/first?hiding=true">
+        Dynamic GSSP not found
+      </Link>
     </div>
   );
 }

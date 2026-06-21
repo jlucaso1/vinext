@@ -268,15 +268,16 @@ type ResolvePagesPageDataResult =
 
 function buildPagesDataNotFoundResponse(deploymentId?: string): Response {
   // Matches Next.js: `/_next/data/<buildId>/<page>.json` 404 responses use
-  // application/json with an empty object body so clients can call
-  // `res.json()` without throwing before inspecting the status code.
+  // application/json with a notFound marker so the client router can render
+  // the configured 404 page without hard-navigating. Missing routes/build IDs
+  // still use the empty-object deploy-skew response in the outer handlers.
   // Mirror Next.js pages-handler.ts: set x-nextjs-deployment-id on all
   // `_next/data` notFound exits so the client can detect a new deployment.
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (deploymentId) {
     headers[NEXTJS_DEPLOYMENT_ID_HEADER] = deploymentId;
   }
-  return new Response("{}", {
+  return new Response('{"notFound":true}', {
     status: 404,
     headers,
   });
@@ -739,18 +740,6 @@ export async function resolvePagesPageData(
 
     if (result?.notFound) {
       return buildPagesNotFoundResult(options);
-    }
-
-    // Mirrors Next.js render.tsx's `isSerializableProps(pathname, "getServerSideProps", data.props)`
-    // check, gated on `!metadata.isRedirect && !metadata.isNotFound` (both
-    // short-circuit above). Throws a friendly `SerializableError` so the
-    // caller's existing try/catch surfaces a clear 500 instead of rendering
-    // an empty page. See
-    // .nextjs-ref/packages/next/src/server/render.tsx (~line 1200) and
-    // .nextjs-ref/packages/next/src/lib/is-serializable-props.ts. Tracked in
-    // vinext#1478.
-    if (result?.props !== undefined) {
-      isSerializableProps(options.routePattern, "getServerSideProps", pageProps);
     }
 
     gsspRes = res;
