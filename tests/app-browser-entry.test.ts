@@ -1,4 +1,5 @@
 import React from "react";
+import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
   createDevOnCaughtError,
@@ -20,6 +21,7 @@ import {
   normalizeServerActionThrownValue,
   parseServerActionRevalidationHeader,
   readInvalidServerActionResponseError,
+  resolveServerActionOperationLane,
   shouldClearClientNavigationCachesForServerActionResult,
   shouldScheduleRefreshForDiscardedServerAction,
 } from "../packages/vinext/src/server/app-browser-action-result.js";
@@ -887,6 +889,9 @@ describe("app browser entry navigation scheduling", () => {
     expect(
       parseServerActionRevalidationHeader(new Headers({ [ACTION_REVALIDATED_HEADER]: "not-json" })),
     ).toBe("none");
+    expect(resolveServerActionOperationLane("none")).toBe("server-action");
+    expect(resolveServerActionOperationLane("dynamicOnly")).toBe("refresh");
+    expect(resolveServerActionOperationLane("staticAndDynamic")).toBe("refresh");
   });
 
   it("restores action HTTP fallback errors from response status", () => {
@@ -3123,6 +3128,158 @@ describe("app browser navigation controller", () => {
     } finally {
       detach();
     }
+  });
+
+  it("preserves matching layouts on non-revalidating server-action commits", async () => {
+    const previousLayout = React.createElement("div", null, "previous layout");
+    const nextLayout = React.createElement("div", null, "next layout");
+    const state = createState({
+      bfcacheIds: { "layout:/": "0" },
+      elements: createResolvedElements(
+        "route:/settings",
+        "/",
+        null,
+        { "layout:/": previousLayout },
+        ["layout:/"],
+      ),
+      layoutIds: ["layout:/"],
+      rootLayoutTreePath: "/",
+      routeId: "route:/settings",
+    });
+    const nextState = await applyApprovedTestCommit(state, {
+      extraEntries: {
+        "layout:/": nextLayout,
+        "page:/settings": React.createElement("main", null, "settings"),
+      },
+      layoutIds: ["layout:/"],
+      operationLane: "server-action",
+      rootLayoutTreePath: "/",
+      routeId: "route:/settings",
+    });
+
+    expect(nextState.activeOperation).toMatchObject({ lane: "server-action" });
+    expect(nextState.elements["layout:/"]).toBe(previousLayout);
+  });
+
+  it("installs fresh matching layouts for revalidating same-URL server actions", async () => {
+    const previousLayout = React.createElement("div", null, "previous layout");
+    const nextLayout = React.createElement("div", null, "revalidated layout");
+    const initialState = createState({
+      bfcacheIds: { "layout:/": "0" },
+      elements: createResolvedElements(
+        "route:/settings",
+        "/",
+        null,
+        { "layout:/": previousLayout },
+        ["layout:/"],
+      ),
+      layoutIds: ["layout:/"],
+      rootLayoutTreePath: "/",
+      routeId: "route:/settings",
+      navigationSnapshot: createClientNavigationRenderSnapshot("https://example.com/settings", {}),
+    });
+    const { controller, detach, stateRef } = createControllerHarness(initialState);
+    stubWindow("https://example.com/settings");
+
+    try {
+      await controller.commitSameUrlNavigatePayload(
+        Promise.resolve(
+          createResolvedElements(
+            "route:/settings",
+            "/",
+            null,
+            {
+              "layout:/": nextLayout,
+              "page:/settings": React.createElement("main", null, "settings"),
+            },
+            ["layout:/"],
+          ),
+        ),
+        stateRef.current.navigationSnapshot,
+        undefined,
+        stateRef.current,
+        { revalidation: "staticAndDynamic" },
+      );
+
+      expect(stateRef.current.activeOperation).toMatchObject({ lane: "refresh" });
+      expect(stateRef.current.elements["layout:/"]).toBe(nextLayout);
+    } finally {
+      detach();
+    }
+  });
+
+  it("installs fresh matching layouts for redirected revalidating server actions", async () => {
+    const previousLayout = React.createElement("div", null, "previous layout");
+    const nextLayout = React.createElement("div", null, "redirected layout");
+    const initialState = createState({
+      bfcacheIds: { "layout:/": "0" },
+      elements: createResolvedElements(
+        "route:/settings",
+        "/",
+        null,
+        { "layout:/": previousLayout },
+        ["layout:/"],
+      ),
+      layoutIds: ["layout:/"],
+      rootLayoutTreePath: "/",
+      routeId: "route:/settings",
+    });
+    const { controller, detach, stateRef } = createControllerHarness(initialState);
+    const revalidation = parseServerActionRevalidationHeader(
+      new Headers({ [ACTION_REVALIDATED_HEADER]: "1" }),
+    );
+
+    try {
+      void controller.renderNavigationPayload({
+        actionType: "navigate",
+        createNavigationCommitEffect: () => () => {},
+        historyUpdateMode: "push",
+        navigationSnapshot: createClientNavigationRenderSnapshot(
+          "https://example.com/settings/complete",
+          {},
+        ),
+        nextElements: Promise.resolve(
+          createResolvedElements(
+            "route:/settings/complete",
+            "/",
+            null,
+            {
+              "layout:/": nextLayout,
+              "page:/settings/complete": React.createElement("main", null, "complete"),
+            },
+            ["layout:/"],
+          ),
+        ),
+        operationLane: resolveServerActionOperationLane(revalidation),
+        params: {},
+        payloadOrigin: FRESH_APP_NAVIGATION_PAYLOAD_ORIGIN,
+        pendingRouterState: null,
+        previousNextUrl: null,
+        targetHref: "https://example.com/settings/complete",
+        navId: controller.beginNavigation(),
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(stateRef.current.activeOperation).toMatchObject({ lane: "refresh" });
+      expect(stateRef.current.elements["layout:/"]).toBe(nextLayout);
+    } finally {
+      detach();
+    }
+  });
+
+  it("wires redirected server action payloads through the revalidation lane resolver", async () => {
+    const source = await readFile(
+      new URL("../packages/vinext/src/server/app-browser-entry.ts", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("resolveServerActionOperationLane(revalidation)");
+    expect(source).not.toMatch(
+      /actionRedirectTarget[\s\S]*?FRESH_APP_NAVIGATION_PAYLOAD_ORIGIN[\s\S]*?["']server-action["']/,
+    );
   });
 
   it("syncs cleared previousNextUrl after same-URL server action commits", async () => {

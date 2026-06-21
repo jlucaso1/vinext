@@ -93,6 +93,7 @@ import {
   normalizeServerActionThrownValue,
   parseServerActionRevalidationHeader,
   readInvalidServerActionResponseError,
+  resolveServerActionOperationLane,
   shouldClearClientNavigationCachesForServerActionResult,
   type ServerActionRevalidationKind,
   type AppBrowserServerActionResult,
@@ -1543,7 +1544,7 @@ function registerServerActionCallback(): void {
           null,
           FRESH_APP_NAVIGATION_PAYLOAD_ORIGIN,
           actionRedirectTarget.type === "push" ? "navigate" : "replace",
-          "server-action",
+          resolveServerActionOperationLane(revalidation),
           null,
           actionScrollIntent,
         ).catch(() => {

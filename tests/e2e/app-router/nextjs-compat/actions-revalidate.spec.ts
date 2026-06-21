@@ -111,7 +111,9 @@ test.describe("Next.js compat: actions-revalidate (browser)", () => {
 
     // Read initial timestamp
     const time1 = await page.locator("#time").textContent();
+    const layoutVersion1 = await page.locator("#layout-version").textContent();
     expect(time1).toBeTruthy();
+    expect(layoutVersion1).toBeTruthy();
 
     // Click revalidate button (triggers server action with revalidatePath)
     await page.click("#revalidate");
@@ -122,6 +124,8 @@ test.describe("Next.js compat: actions-revalidate (browser)", () => {
       expect(time2).toBeTruthy();
       expect(time2).not.toBe(time1);
     }).toPass({ timeout: 10_000 });
+
+    await expect(page.locator("#layout-version")).not.toHaveText(layoutVersion1!);
   });
 
   // Test router.refresh() re-renders with fresh data
