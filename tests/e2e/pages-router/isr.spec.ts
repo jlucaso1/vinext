@@ -24,6 +24,14 @@ test.describe("Pages Router ISR", () => {
     expect(["MISS", "HIT", "STALE"]).toContain(cacheHeader);
   });
 
+  test("middleware rewrite to an SSG page still runs getStaticProps", async ({ request }) => {
+    const res = await request.get(`${BASE}/mw-rewrite-isr`);
+
+    expect(res.status()).toBe(200);
+    expect(await res.text()).toContain("Hello from ISR");
+    expect(res.headers()["cache-control"]).toBe("no-store, must-revalidate");
+  });
+
   test("second request within TTL is a cache HIT with same timestamp", async ({ request }) => {
     // First request: populate cache
     const res1 = await request.get(`${BASE}/isr-test`);

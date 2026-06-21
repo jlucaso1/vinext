@@ -994,14 +994,13 @@ export function createSSRHandler(
           // Font modules not loaded yet — skip
         }
 
-        if (
-          typeof pageModule.getStaticProps === "function" &&
-          !isFallbackRender &&
-          !hasMiddlewareRewrite
-        ) {
+        if (typeof pageModule.getStaticProps === "function" && !isFallbackRender) {
           // Check ISR cache before calling getStaticProps
           const cacheKey = pagesIsrCacheKey(url.split("?")[0]);
-          const cached = await isrGet(cacheKey);
+          // Next.js dev always executes getStaticProps. Middleware rewrites
+          // additionally bypass vinext's dev ISR cache so query-varying
+          // rewrites cannot reuse or persist another request's page data.
+          const cached = hasMiddlewareRewrite ? null : await isrGet(cacheKey);
 
           // On-demand revalidation request (`res.revalidate()` from an API
           // route sets the `x-prerender-revalidate` header to the process
