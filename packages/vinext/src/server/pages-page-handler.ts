@@ -22,6 +22,7 @@ import type { PagesPageModule } from "./pages-page-data.js";
 import { resolvePagesPageMethodResponse } from "./pages-page-method.js";
 import { renderPagesPageResponse } from "./pages-page-response.js";
 import { buildPagesReadinessNextData } from "./pages-readiness.js";
+import { getPagesMiddlewareRewriteCacheState } from "./pages-middleware-rewrite-cache.js";
 import type { PagesI18nRenderContext } from "./pages-page-response.js";
 import type { RenderPageEnhancers } from "./pages-document-initial-props.js";
 import {
@@ -48,6 +49,8 @@ import { collectAssetTags, resolveClientModuleUrl } from "./pages-asset-tags.js"
 import { NEXTJS_DEPLOYMENT_ID_HEADER } from "./headers.js";
 import { ISR_NEVER_CACHE_CONTROL } from "./isr-decision.js";
 import { appendAssetDeploymentIdQuery } from "../utils/deployment-id.js";
+
+export { getPagesMiddlewareRewriteCacheState } from "./pages-middleware-rewrite-cache.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,22 +91,6 @@ type VinextConfigSubset = {
   clientTraceMetadata?: readonly string[];
   disableOptimizedLoading: boolean;
 };
-
-export function getPagesMiddlewareRewriteCacheState(
-  routeUrl: string,
-  hasMiddlewareRewrite: boolean,
-): { cachePathname: string; bypassCdnCache: boolean } {
-  const url = new URL(routeUrl, "http://vinext.local");
-  if (!hasMiddlewareRewrite || !url.search) {
-    return { cachePathname: url.pathname || "/", bypassCdnCache: false };
-  }
-
-  url.searchParams.sort();
-  return {
-    cachePathname: `${url.pathname || "/"}?${url.searchParams.toString()}`,
-    bypassCdnCache: true,
-  };
-}
 
 /**
  * Options accepted by `createPagesPageHandler`.

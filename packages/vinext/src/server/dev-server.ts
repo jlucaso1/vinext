@@ -73,6 +73,7 @@ import {
 } from "./pages-get-initial-props.js";
 import { isBotUserAgent } from "../utils/html-limited-bots.js";
 import { isUnknownRecord } from "../utils/record.js";
+import type { PagesMiddlewareRewriteCacheState } from "./pages-middleware-rewrite-cache.js";
 
 /**
  * Render a React element to a string using renderToReadableStream.
@@ -474,7 +475,7 @@ export function createSSRHandler(
      */
     isDataReq: boolean = false,
     originalUrl: string = url,
-    hasMiddlewareRewrite = false,
+    middlewareRewriteCacheState?: PagesMiddlewareRewriteCacheState,
   ): Promise<void> => {
     const _reqStart = now();
     let _compileEnd: number | undefined;
@@ -541,6 +542,9 @@ export function createSSRHandler(
           )
       : (pathname: string) => isrCacheKey("pages", pathname, process.env.__VINEXT_BUILD_ID);
 
+    const hasMiddlewareRewrite = middlewareRewriteCacheState !== undefined;
+    const rewriteCachePathname = middlewareRewriteCacheState?.cachePathname ?? url.split("?")[0];
+    const bypassMiddlewareRewriteCache = middlewareRewriteCacheState?.bypassCdnCache === true;
     const match = matchRoute(localeStrippedUrl, routes);
 
     if (!match) {
@@ -785,8 +789,10 @@ export function createSSRHandler(
           const userAgent = Array.isArray(userAgentHeader) ? userAgentHeader[0] : userAgentHeader;
           const isBotRequest = !!userAgent && isBotUserAgent(userAgent, htmlLimitedBots);
           if (fallback === true && !isValidPath && !isDataReq && !isBotRequest) {
-            const fallbackCacheKey = pagesIsrCacheKey(url.split("?")[0]);
-            const generatedEntry = hasMiddlewareRewrite ? null : await isrGet(fallbackCacheKey);
+            const fallbackCacheKey = pagesIsrCacheKey(rewriteCachePathname);
+            const generatedEntry = bypassMiddlewareRewriteCache
+              ? null
+              : await isrGet(fallbackCacheKey);
             isFallbackRender = generatedEntry?.value.value?.kind !== "PAGES";
             if (isFallbackRender && typeof routerShim.setSSRContext === "function") {
               routerShim.setSSRContext({
@@ -996,11 +1002,11 @@ export function createSSRHandler(
 
         if (typeof pageModule.getStaticProps === "function" && !isFallbackRender) {
           // Check ISR cache before calling getStaticProps
-          const cacheKey = pagesIsrCacheKey(url.split("?")[0]);
+          const cacheKey = pagesIsrCacheKey(rewriteCachePathname);
           // Next.js dev always executes getStaticProps. Middleware rewrites
           // additionally bypass vinext's dev ISR cache so query-varying
           // rewrites cannot reuse or persist another request's page data.
-          const cached = hasMiddlewareRewrite ? null : await isrGet(cacheKey);
+          const cached = bypassMiddlewareRewriteCache ? null : await isrGet(cacheKey);
 
           // On-demand revalidation request (`res.revalidate()` from an API
           // route sets the `x-prerender-revalidate` header to the process
@@ -1428,8 +1434,8 @@ export function createSSRHandler(
         // by getServerSideProps (cookies, status codes, etc.) are preserved
         // because we already let gSSP mutate `res` above.
         if (isDataReq) {
-          if (shouldPersistFallbackData && !hasMiddlewareRewrite) {
-            const cacheKey = pagesIsrCacheKey(url.split("?")[0]);
+          if (shouldPersistFallbackData && !bypassMiddlewareRewriteCache) {
+            const cacheKey = pagesIsrCacheKey(rewriteCachePathname);
             const revalidateSeconds = isrRevalidateSeconds ?? 31_536_000;
             await isrSet(
               cacheKey,
@@ -1453,7 +1459,7 @@ export function createSSRHandler(
               dataHeaders[k] = v;
             }
           }
-          if (hasMiddlewareRewrite && typeof pageModule.getStaticProps === "function") {
+          if (bypassMiddlewareRewriteCache && typeof pageModule.getStaticProps === "function") {
             dataHeaders["Cache-Control"] = "no-cache, must-revalidate";
           }
           // Mirror Next.js pages-handler.ts: set x-nextjs-deployment-id on
@@ -1707,7 +1713,7 @@ hydrate();
         const extraHeaders: Record<string, string | string[]> = {
           ...gsspExtraHeaders,
         };
-        if (hasMiddlewareRewrite && typeof pageModule.getStaticProps === "function") {
+        if (bypassMiddlewareRewriteCache && typeof pageModule.getStaticProps === "function") {
           extraHeaders["Cache-Control"] = "no-cache, must-revalidate";
         } else if (isrRevalidateSeconds) {
           if (scriptNonce) {
@@ -1813,7 +1819,7 @@ hydrate();
           !scriptNonce &&
           isrRevalidateSeconds !== null &&
           isrRevalidateSeconds > 0 &&
-          !hasMiddlewareRewrite
+          !bypassMiddlewareRewriteCache
         ) {
           let isrElement = AppComponent
             ? createElement(AppComponent, {
@@ -1829,7 +1835,7 @@ hydrate();
             withScriptNonce(isrElement, scriptNonce),
           );
           const isrHtml = `<!DOCTYPE html><html><head></head><body><div id="__next">${isrBodyHtml}</div>${allScripts}</body></html>`;
-          const cacheKey = pagesIsrCacheKey(url.split("?")[0]);
+          const cacheKey = pagesIsrCacheKey(rewriteCachePathname);
           await isrSet(cacheKey, buildPagesCacheValue(isrHtml, pageProps), isrRevalidateSeconds);
           setRevalidateDuration(cacheKey, isrRevalidateSeconds);
         }
