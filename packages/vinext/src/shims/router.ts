@@ -1440,6 +1440,12 @@ function scheduleHardNavigationAndThrow(url: string, message: string): never {
 type NavigateClientOptions = {
   allowNotFoundResponse?: boolean;
   /**
+   * Route state to preserve while rendering an error-route component. A
+   * getServerSideProps/getStaticProps notFound transition renders /404, but
+   * Next.js keeps pathname/route/query/asPath pointed at the requested route.
+   */
+  nextDataRouteState?: Pick<VinextNextData, "page" | "query">;
+  /**
    * The history mode of the originating navigation. Used when a gSSP/gSP data
    * response carries a `__N_REDIRECT` marker so the re-entrant navigation to
    * the redirect destination preserves push-vs-replace semantics, matching
@@ -1716,9 +1722,17 @@ async function navigateClientData(
       if (!notFoundFetchUrl) {
         scheduleHardNavigationAndThrow(url, "Data navigation failed: no 404 route available");
       }
+      const requestedQuery = mergeRouteParamsIntoQuery(
+        parseQueryString(initialTarget.search),
+        initialTarget.params,
+      );
       await navigateClientHtml(url, notFoundFetchUrl, controller, navId, assertStillCurrent, {
         ...options,
         allowNotFoundResponse: true,
+        nextDataRouteState: {
+          page: initialTarget.pattern,
+          query: requestedQuery,
+        },
       });
       return;
     }
@@ -2043,8 +2057,11 @@ async function navigateClientHtml(
     window.history.replaceState(window.history.state ?? {}, "", pendingRedirectHistoryUrl);
     routerRuntimeState.lastPathnameAndSearch = window.location.pathname + window.location.search;
   }
-  window.__NEXT_DATA__ = nextData;
-  applyVinextLocaleGlobals(window, nextData);
+  const committedNextData = options.nextDataRouteState
+    ? { ...nextData, ...options.nextDataRouteState }
+    : nextData;
+  window.__NEXT_DATA__ = committedNextData;
+  applyVinextLocaleGlobals(window, committedNextData);
   await renderPagesRouterElement(element, options.scroll);
   assertStillCurrent();
 }
