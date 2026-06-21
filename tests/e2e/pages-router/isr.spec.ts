@@ -32,6 +32,24 @@ test.describe("Pages Router ISR", () => {
     expect(res.headers()["cache-control"]).toBe("no-store, must-revalidate");
   });
 
+  test("middleware rewrite to a non-ISR GSP page disables HTML and data caching", async ({
+    request,
+  }) => {
+    const htmlResponse = await request.get(`${BASE}/mw-rewrite-static-gsp`);
+    expect(htmlResponse.status()).toBe(200);
+    expect(await htmlResponse.text()).toContain("Hello from static GSP");
+    expect(htmlResponse.headers()["cache-control"]).toBe("no-store, must-revalidate");
+
+    const dataResponse = await request.get(
+      `${BASE}/_next/data/test-build-id/mw-rewrite-static-gsp.json`,
+    );
+    expect(dataResponse.status()).toBe(200);
+    expect(await dataResponse.json()).toMatchObject({
+      pageProps: { message: "Hello from static GSP" },
+    });
+    expect(dataResponse.headers()["cache-control"]).toBe("no-store, must-revalidate");
+  });
+
   test("second request within TTL is a cache HIT with same timestamp", async ({ request }) => {
     // First request: populate cache
     const res1 = await request.get(`${BASE}/isr-test`);

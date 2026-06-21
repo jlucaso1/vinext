@@ -34,6 +34,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.rewrite(new URL("/isr-test", request.url));
   }
 
+  if (url.pathname === "/mw-rewrite-static-gsp") {
+    return NextResponse.rewrite(new URL("/static-gsp", request.url));
+  }
+
   // Ported from Next.js: test/e2e/middleware-general/app/middleware.js
   // Missing Pages chunks still reach middleware, which may rewrite the 404.
   if (url.pathname.includes("/_next/static/chunks/pages/_app-non-existent.js")) {

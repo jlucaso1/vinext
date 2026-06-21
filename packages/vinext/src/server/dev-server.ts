@@ -1453,6 +1453,9 @@ export function createSSRHandler(
               dataHeaders[k] = v;
             }
           }
+          if (hasMiddlewareRewrite && typeof pageModule.getStaticProps === "function") {
+            dataHeaders["Cache-Control"] = ISR_NO_STORE_CACHE_CONTROL;
+          }
           // Mirror Next.js pages-handler.ts: set x-nextjs-deployment-id on
           // every _next/data response so the client router can detect a new
           // deployment and trigger a hard navigation (deployment-skew
@@ -1704,8 +1707,10 @@ hydrate();
         const extraHeaders: Record<string, string | string[]> = {
           ...gsspExtraHeaders,
         };
-        if (isrRevalidateSeconds) {
-          if (scriptNonce || hasMiddlewareRewrite) {
+        if (hasMiddlewareRewrite && typeof pageModule.getStaticProps === "function") {
+          extraHeaders["Cache-Control"] = ISR_NO_STORE_CACHE_CONTROL;
+        } else if (isrRevalidateSeconds) {
+          if (scriptNonce) {
             extraHeaders["Cache-Control"] = ISR_NO_STORE_CACHE_CONTROL;
           } else {
             extraHeaders["Cache-Control"] = buildMissIsrCacheControl(isrRevalidateSeconds);
