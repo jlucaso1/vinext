@@ -29,7 +29,7 @@ test.describe("Pages Router ISR", () => {
 
     expect(res.status()).toBe(200);
     expect(await res.text()).toContain("Hello from ISR");
-    expect(res.headers()["cache-control"]).toBe("no-store, must-revalidate");
+    expect(res.headers()["cache-control"]).toBe("no-cache, must-revalidate");
   });
 
   test("middleware rewrite to a non-ISR GSP page disables HTML and data caching", async ({
@@ -38,7 +38,7 @@ test.describe("Pages Router ISR", () => {
     const htmlResponse = await request.get(`${BASE}/mw-rewrite-static-gsp`);
     expect(htmlResponse.status()).toBe(200);
     expect(await htmlResponse.text()).toContain("Hello from static GSP");
-    expect(htmlResponse.headers()["cache-control"]).toBe("no-store, must-revalidate");
+    expect(htmlResponse.headers()["cache-control"]).toBe("no-cache, must-revalidate");
 
     const dataResponse = await request.get(
       `${BASE}/_next/data/test-build-id/mw-rewrite-static-gsp.json`,
@@ -47,7 +47,7 @@ test.describe("Pages Router ISR", () => {
     expect(await dataResponse.json()).toMatchObject({
       pageProps: { message: "Hello from static GSP" },
     });
-    expect(dataResponse.headers()["cache-control"]).toBe("no-store, must-revalidate");
+    expect(dataResponse.headers()["cache-control"]).toBe("no-cache, must-revalidate");
   });
 
   test("second request within TTL is a cache HIT with same timestamp", async ({ request }) => {

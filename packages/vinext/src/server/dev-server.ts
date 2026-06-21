@@ -1454,7 +1454,7 @@ export function createSSRHandler(
             }
           }
           if (hasMiddlewareRewrite && typeof pageModule.getStaticProps === "function") {
-            dataHeaders["Cache-Control"] = ISR_NO_STORE_CACHE_CONTROL;
+            dataHeaders["Cache-Control"] = "no-cache, must-revalidate";
           }
           // Mirror Next.js pages-handler.ts: set x-nextjs-deployment-id on
           // every _next/data response so the client router can detect a new
@@ -1708,7 +1708,7 @@ hydrate();
           ...gsspExtraHeaders,
         };
         if (hasMiddlewareRewrite && typeof pageModule.getStaticProps === "function") {
-          extraHeaders["Cache-Control"] = ISR_NO_STORE_CACHE_CONTROL;
+          extraHeaders["Cache-Control"] = "no-cache, must-revalidate";
         } else if (isrRevalidateSeconds) {
           if (scriptNonce) {
             extraHeaders["Cache-Control"] = ISR_NO_STORE_CACHE_CONTROL;
