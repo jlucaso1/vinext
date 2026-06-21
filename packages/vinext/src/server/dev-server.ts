@@ -749,8 +749,8 @@ export function createSSRHandler(
             if (isDataReq) {
               // Data requests get a JSON 404 so the client router can
               // hard-navigate instead of trying to parse HTML as JSON.
-              // Mirror Next.js pages-handler.ts: set x-nextjs-deployment-id on
-              // `_next/data` notFound exits for deployment-skew protection. Fixes #1829.
+              // Set x-nextjs-deployment-id on the data 404 for deployment-skew
+              // protection while keeping the empty-object hard-navigation shape.
               const deploymentId =
                 process.env.__VINEXT_DEPLOYMENT_ID || process.env.NEXT_DEPLOYMENT_ID;
               const notFoundHeaders: Record<string, string> = {
@@ -758,7 +758,7 @@ export function createSSRHandler(
               };
               if (deploymentId) notFoundHeaders[NEXTJS_DEPLOYMENT_ID_HEADER] = deploymentId;
               res.writeHead(404, notFoundHeaders);
-              res.end('{"notFound":true}');
+              res.end("{}");
               return;
             }
             await renderErrorPage(

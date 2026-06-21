@@ -324,7 +324,7 @@ describe("pages page data", () => {
     expect(result).toEqual({ kind: "notFound" });
   });
 
-  it("returns JSON 404 envelope for data requests when getStaticPaths excludes a path", async () => {
+  it("returns empty JSON 404 for data requests when getStaticPaths excludes a path", async () => {
     const result = await resolvePagesPageData(
       createOptions({
         isDataReq: true,
@@ -349,7 +349,7 @@ describe("pages page data", () => {
     }
     expect(result.response.status).toBe(404);
     expect(result.response.headers.get("content-type")).toBe("application/json");
-    await expect(result.response.json()).resolves.toEqual({ notFound: true });
+    await expect(result.response.json()).resolves.toEqual({});
   });
 
   it("returns JSON 404 envelope for data requests when getStaticProps returns notFound", async () => {

@@ -283,6 +283,17 @@ function buildPagesDataNotFoundResponse(deploymentId?: string): Response {
   });
 }
 
+function buildPagesDataFallbackMissResponse(deploymentId?: string): Response {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (deploymentId) {
+    headers[NEXTJS_DEPLOYMENT_ID_HEADER] = deploymentId;
+  }
+  return new Response("{}", {
+    status: 404,
+    headers,
+  });
+}
+
 function buildPagesNotFoundResult(
   options: Pick<ResolvePagesPageDataOptions, "isDataReq" | "deploymentId">,
 ): ResolvePagesPageDataResponseResult | ResolvePagesPageDataNotFoundResult {
@@ -635,9 +646,15 @@ export async function resolvePagesPageData(
 
     if (fallback === false && !isValidPath) {
       // For data requests (`/_next/data/...json`), return a JSON-shaped 404
-      // so the client router can `res.json()` without blowing up — matches
-      // Next.js' behavior. HTML navigations still get the configured 404 page.
-      return buildPagesNotFoundResult(options);
+      // without the notFound marker so the client router hard-navigates,
+      // matching Next.js' NoFallbackError path.
+      if (options.isDataReq) {
+        return {
+          kind: "response",
+          response: buildPagesDataFallbackMissResponse(options.deploymentId),
+        };
+      }
+      return { kind: "notFound" };
     }
 
     // Render the fallback shell for unlisted paths under `fallback: true`.
