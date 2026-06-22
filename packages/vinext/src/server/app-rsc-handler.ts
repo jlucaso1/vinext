@@ -304,6 +304,10 @@ type CreateAppRscHandlerOptions<TRoute extends AppRscHandlerRoute> = {
   imageConfig?: ImageConfig;
   isDev: boolean;
   loadPrerenderPagesRoutes?: () => Promise<unknown>;
+  matchInterceptRoute?: (
+    pathname: string,
+    sourcePathname: string,
+  ) => AppRscRouteMatch<TRoute> | null;
   matchRoute: (pathname: string) => AppRscRouteMatch<TRoute> | null;
   runMiddleware?: (options: RunAppMiddlewareOptions) => Promise<ApplyAppMiddlewareResult>;
   publicFiles: ReadonlySet<string>;
@@ -772,11 +776,16 @@ async function handleAppRscRequest<TRoute extends AppRscHandlerRoute>(
   }
 
   let match = preActionMatch;
+  let isInterceptionMatch = false;
+  if (!match && isRscRequest && interceptionContextHeader !== null) {
+    match = options.matchInterceptRoute?.(cleanPathname, interceptionContextHeader) ?? null;
+    isInterceptionMatch = match !== null;
+  }
   const renderPagesForMatchKind = async (
     matchKind: "dynamic" | "static",
   ): Promise<Response | null> => {
     const response =
-      match === null || match.route.isDynamic
+      !isInterceptionMatch && (match === null || match.route.isDynamic)
         ? ((await options.renderPagesFallback?.({
             appRouteMatch: match ?? null,
             allowRscDocumentFallback: didMiddlewareRewrite,
@@ -805,7 +814,7 @@ async function handleAppRscRequest<TRoute extends AppRscHandlerRoute>(
     options.clearRequestContext();
     return staticPagesFallbackResponse;
   }
-  if (!match || match.route.isDynamic) {
+  if (!isInterceptionMatch && (!match || match.route.isDynamic)) {
     for (const rewrite of options.configRewrites.afterFiles) {
       const afterFilesRewrite = await applyRewrite(
         {
