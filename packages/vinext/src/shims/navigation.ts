@@ -12,6 +12,7 @@
 // bindings are just `undefined` on the namespace object and we can guard at runtime.
 import * as React from "react";
 import {
+  applyNavigationRuntimeRscState,
   getNavigationRuntime,
   hasAppNavigationRuntime,
   type NavigationRuntimeVisibleCommitMode,
@@ -40,7 +41,6 @@ import {
   VINEXT_DYNAMIC_STALE_TIME_HEADER,
   VINEXT_MOUNTED_SLOTS_HEADER,
   VINEXT_PARAMS_HEADER,
-  VINEXT_RSC_STATE_HEADER,
 } from "../server/headers.js";
 import {
   isAbsoluteOrProtocolRelativeUrl,
@@ -1895,10 +1895,7 @@ const _appRouter: AppRouterInstance = {
       if (mountedSlotsHeader) {
         headers.set(VINEXT_MOUNTED_SLOTS_HEADER, mountedSlotsHeader);
       }
-      const rscStateFingerprint = getNavigationRuntime()?.functions.getRscStateFingerprint?.();
-      if (rscStateFingerprint) {
-        headers.set(VINEXT_RSC_STATE_HEADER, rscStateFingerprint);
-      }
+      applyNavigationRuntimeRscState(headers);
       const rscUrl = await createRscRequestUrl(fullHref, headers);
       const cacheKey = AppElementsWire.encodeCacheKey(rscUrl, interceptionContext);
       const prefetched = getPrefetchedUrls();

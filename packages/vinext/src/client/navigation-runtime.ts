@@ -1,6 +1,7 @@
 import type { RouteManifest, RouteManifestInterception } from "../routing/app-route-graph.js";
 import { isUnknownRecord } from "../utils/record.js";
 import type { AppRouterScrollIntent } from "vinext/shims/app-router-scroll-state";
+import { VINEXT_RSC_STATE_HEADER } from "../server/headers.js";
 
 export type NavigationRuntimeSnapshot = {
   pathname: string;
@@ -295,6 +296,13 @@ export function registerNavigationRuntimeFunctions(
     ...functions,
   };
   return runtime;
+}
+
+export function applyNavigationRuntimeRscState(headers: Headers): void {
+  const fingerprint = getNavigationRuntime()?.functions.getRscStateFingerprint?.();
+  if (fingerprint) {
+    headers.set(VINEXT_RSC_STATE_HEADER, fingerprint);
+  }
 }
 
 export function ensureNavigationRuntimeRscBootstrap(): NavigationRuntimeRscBootstrap {
