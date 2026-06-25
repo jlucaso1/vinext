@@ -27,6 +27,7 @@ import { resolveManifestNavigationInterceptionContext } from "../server/app-brow
 import {
   createExternalHistoryStatePreservingMetadata,
   createHashOnlyHistoryStatePreservingNavigationMetadata,
+  isExternalHistoryState,
 } from "../server/app-history-state.js";
 import {
   createRscRequestHeaders,
@@ -2152,6 +2153,9 @@ if (!isServer) {
         // A raw history.pushState (shallow routing) starts a navigation that did
         // not go through navigateClientSide; clear any sticky pending link.
         getNavigationRuntime()?.functions.notifyLinkNavigationStart?.();
+        if (isExternalHistoryState(window.history.state)) {
+          getNavigationRuntime()?.functions.commitShallowHistory?.("push");
+        }
         commitClientNavigationState();
       }
     };
@@ -2169,6 +2173,9 @@ if (!isServer) {
       );
       if (state.suppressUrlNotifyCount === 0) {
         getNavigationRuntime()?.functions.notifyLinkNavigationStart?.();
+        if (isExternalHistoryState(window.history.state)) {
+          getNavigationRuntime()?.functions.commitShallowHistory?.("replace");
+        }
         commitClientNavigationState();
       }
     };
