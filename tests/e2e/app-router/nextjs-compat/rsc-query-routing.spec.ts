@@ -21,7 +21,7 @@ test("preserves the hashed RSC query across a config redirect", async ({ page })
   expect(requests[1]).toContain("/nextjs-compat/rsc-query-redirect/dest?_rsc=");
 });
 
-test("includes the hashed RSC query on a rewritten navigation", async ({ page }) => {
+test("includes the hashed RSC query on the rewrite source request", async ({ page }) => {
   await page.goto(`${BASE}/nextjs-compat/rsc-query-rewrite`);
   await waitForAppRouterHydration(page);
 
