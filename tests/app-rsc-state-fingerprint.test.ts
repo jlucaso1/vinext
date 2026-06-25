@@ -31,4 +31,11 @@ describe("createAppRscStateFingerprint", () => {
     expect(createAppRscStateFingerprint(createState("/docs/b", "tab=one"))).not.toBe(original);
     expect(createAppRscStateFingerprint(createState("/docs/a", "tab=two"))).not.toBe(original);
   });
+
+  it("stays fixed-size for large valid router states", () => {
+    const state = createState(`/${"nested/".repeat(500)}page`, `q=${"value".repeat(500)}`);
+    state.layoutIds = Array.from({ length: 500 }, (_, index) => `layout:${index}`);
+
+    expect(createAppRscStateFingerprint(state)).toMatch(/^[0-9a-f]{16}$/);
+  });
 });

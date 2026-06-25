@@ -1,4 +1,5 @@
 import type { AppRouterState } from "./app-browser-state.js";
+import { fnv1a64 } from "../utils/hash.js";
 
 export type AppRscStateFingerprintInput = Pick<
   AppRouterState,
@@ -6,7 +7,7 @@ export type AppRscStateFingerprintInput = Pick<
 >;
 
 export function createAppRscStateFingerprint(state: AppRscStateFingerprintInput): string {
-  return encodeURIComponent(
+  return fnv1a64(
     JSON.stringify({
       layoutIds: state.layoutIds,
       pathname: state.navigationSnapshot.pathname,
