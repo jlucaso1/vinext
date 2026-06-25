@@ -2081,6 +2081,7 @@ function bootstrapHydration(
     }
     if (isExternalHistoryState(event.state)) {
       notifyAppRouterTransitionStart(href, "traverse");
+      historyController.commitTraversalIndexFromHistoryState(event.state);
       commitClientNavigationState();
       restorePopstateScrollPosition(event.state);
       return;
