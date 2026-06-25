@@ -61,6 +61,7 @@ export type NavigationRuntimeFunctions = {
    */
   notifyLinkNavigationStart?: () => void;
   pingVisibleLinks?: () => void;
+  /** Returns the current visible App Router state variant used for RSC request identity. */
   getRscStateFingerprint?: () => string;
 };
 
