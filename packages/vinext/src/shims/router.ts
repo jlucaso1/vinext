@@ -2739,6 +2739,13 @@ async function navigateClient(
           middlewareDataResponse = middlewareEffect.response;
         }
         if (middlewareEffect.rewriteTarget) {
+          const rewrittenOwner = resolveDirectHybridClientRouteOwner(
+            middlewareEffect.rewriteTarget,
+            __basePath,
+          );
+          if (rewrittenOwner === "app" || rewrittenOwner === "document") {
+            scheduleHardNavigationAndThrow(browserUrl, "Navigation rewritten to a non-Pages route");
+          }
           const rewrittenTarget =
             middlewareRewrittenTarget ??
             resolvePagesDataNavigationTarget(
