@@ -327,6 +327,7 @@ ${interceptEntries.join(",\n")}
     childrenRouteSegments: ${JSON.stringify(route.childrenRouteSegments ?? null)},
     templateTreePositions: ${JSON.stringify(route.templateTreePositions)},
     layoutTreePositions: ${JSON.stringify(route.layoutTreePositions)},
+    loadingTreePosition: ${JSON.stringify(route.loadingTreePosition ?? null)},
     templates: ${moduleArray(route.templates.length)},
     __loadTemplates: ${templateLoaders},
     errors: ${moduleArray(layoutErrorPaths.length)},

@@ -140,6 +140,8 @@ export type AppRoute = {
   siblingIntercepts: InterceptingRoute[];
   /** Loading component path */
   loadingPath: string | null;
+  /** Directory depth from app/ that owns the loading boundary. */
+  loadingTreePosition: number | null;
   /** Error component path (leaf directory only) */
   errorPath: string | null;
   /**
@@ -1386,6 +1388,7 @@ function discoverSlotSubRoutes(
           state: childrenDefault ? "default" : childrenCatchAll ? "active" : "unmatched",
         },
         loadingPath: parentRoute.loadingPath,
+        loadingTreePosition: parentRoute.loadingTreePosition,
         errorPath: parentRoute.errorPath,
         layoutErrorPaths: parentRoute.layoutErrorPaths,
         notFoundPath: parentRoute.notFoundPath,
@@ -1650,7 +1653,7 @@ function directoryToAppRoute(
   // Discover loading, error in the route's directory.
   const routeDir = dir === "." ? appDir : path.posix.join(appDir, dir);
   const effectivePagePath = pagePath ?? (routePath ? null : findFile(routeDir, "default", matcher));
-  const loadingPath = findFile(routeDir, "loading", matcher);
+  const loadingEntry = discoverNearestLoadingFile(segments, appDir, matcher);
   const errorPath = findFile(routeDir, "error", matcher);
 
   // Discover not-found/forbidden/unauthorized: walk from route directory up to root (nearest wins).
@@ -1692,7 +1695,8 @@ function directoryToAppRoute(
     layouts,
     templates,
     parallelSlots,
-    loadingPath,
+    loadingPath: loadingEntry?.path ?? null,
+    loadingTreePosition: loadingEntry?.treePosition ?? null,
     errorPath,
     layoutErrorPaths,
     errorPaths,
@@ -1898,6 +1902,26 @@ function discoverSegmentErrors(
   }
 
   return errors;
+}
+
+/**
+ * Next.js stores a segment's loading module on that segment and applies it to
+ * its child route slot. The nearest loading boundary wins for the active route.
+ */
+function discoverNearestLoadingFile(
+  segments: string[],
+  appDir: string,
+  matcher: ValidFileMatcher,
+): { path: string; treePosition: number } | null {
+  for (let depth = segments.length; depth >= 0; depth--) {
+    const dir = depth === 0 ? appDir : path.join(appDir, ...segments.slice(0, depth));
+    const loading = findFile(dir, "loading", matcher);
+    if (loading) {
+      return { path: loading, treePosition: depth };
+    }
+  }
+
+  return null;
 }
 
 /**

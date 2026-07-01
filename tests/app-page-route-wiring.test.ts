@@ -1859,7 +1859,10 @@ describe("app page route wiring helpers", () => {
     });
 
     const routeEntry = elements["route:/products/alpha"];
-    const loadingBoundary = findSuspenseWithFallback(routeEntry, "RouteLoading");
+    const loadingBoundary = findSuspenseWithFallback(
+      elements["page:/products/alpha"],
+      "RouteLoading",
+    );
     const errorBoundary = findElementByTypeName(routeEntry, "ErrorBoundary");
     const notFoundBoundary = findElementByTypeName(routeEntry, "NotFoundBoundary");
 
@@ -1881,8 +1884,8 @@ describe("app page route wiring helpers", () => {
       return createElement("p", null, "Not Found");
     }
 
-    function buildBranchElements(branch: "posts" | "photos") {
-      return buildAppPageElements({
+    function buildBranchElements(branch: "posts" | "photos", entry: "page" | "route") {
+      const elements = buildAppPageElements({
         element: createElement(PageProbe),
         makeThenableParams(params) {
           return Promise.resolve(params);
@@ -1905,13 +1908,24 @@ describe("app page route wiring helpers", () => {
         },
         routePath: `/reset-collision/${branch}/123`,
         rootNotFoundModule: null,
-      })[`route:/reset-collision/${branch}/123`];
+      });
+      return elements[
+        entry === "route"
+          ? `route:/reset-collision/${branch}/123`
+          : `page:/reset-collision/${branch}/123`
+      ];
     }
 
-    const postsRoute = buildBranchElements("posts");
-    const photosRoute = buildBranchElements("photos");
-    const postsLoadingBoundary = findSuspenseWithFallback(postsRoute, "RouteLoading");
-    const photosLoadingBoundary = findSuspenseWithFallback(photosRoute, "RouteLoading");
+    const postsRoute = buildBranchElements("posts", "route");
+    const photosRoute = buildBranchElements("photos", "route");
+    const postsLoadingBoundary = findSuspenseWithFallback(
+      buildBranchElements("posts", "page"),
+      "RouteLoading",
+    );
+    const photosLoadingBoundary = findSuspenseWithFallback(
+      buildBranchElements("photos", "page"),
+      "RouteLoading",
+    );
     const postsErrorBoundary = findElementByTypeName(postsRoute, "ErrorBoundary");
     const photosErrorBoundary = findElementByTypeName(photosRoute, "ErrorBoundary");
     const postsNotFoundBoundary = findElementByTypeName(postsRoute, "NotFoundBoundary");
@@ -1937,8 +1951,8 @@ describe("app page route wiring helpers", () => {
       return createElement("p", null, "Error");
     }
 
-    function buildStaticBranchElements(branch: "account" | "admin") {
-      return buildAppPageElements({
+    function buildStaticBranchElements(branch: "account" | "admin", entry: "page" | "route") {
+      const elements = buildAppPageElements({
         element: createElement(PageProbe),
         makeThenableParams(params) {
           return Promise.resolve(params);
@@ -1961,13 +1975,24 @@ describe("app page route wiring helpers", () => {
         },
         routePath: `/reset-collision/${branch}/settings`,
         rootNotFoundModule: null,
-      })[`route:/reset-collision/${branch}/settings`];
+      });
+      return elements[
+        entry === "route"
+          ? `route:/reset-collision/${branch}/settings`
+          : `page:/reset-collision/${branch}/settings`
+      ];
     }
 
-    const accountRoute = buildStaticBranchElements("account");
-    const adminRoute = buildStaticBranchElements("admin");
-    const accountLoadingBoundary = findSuspenseWithFallback(accountRoute, "RouteLoading");
-    const adminLoadingBoundary = findSuspenseWithFallback(adminRoute, "RouteLoading");
+    const accountRoute = buildStaticBranchElements("account", "route");
+    const adminRoute = buildStaticBranchElements("admin", "route");
+    const accountLoadingBoundary = findSuspenseWithFallback(
+      buildStaticBranchElements("account", "page"),
+      "RouteLoading",
+    );
+    const adminLoadingBoundary = findSuspenseWithFallback(
+      buildStaticBranchElements("admin", "page"),
+      "RouteLoading",
+    );
     const accountErrorBoundary = findElementByTypeName(accountRoute, "ErrorBoundary");
     const adminErrorBoundary = findElementByTypeName(adminRoute, "ErrorBoundary");
 

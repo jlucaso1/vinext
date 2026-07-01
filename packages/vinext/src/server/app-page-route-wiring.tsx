@@ -128,6 +128,7 @@ export type AppPageRouteWiringRoute<
   layoutTreePositions?: readonly number[] | null;
   layouts: readonly (TModule | null | undefined)[];
   loading?: TModule | null;
+  loadingTreePosition?: number | null;
   notFound?: TModule | null;
   notFounds?: readonly (TModule | null | undefined)[] | null;
   forbidden?: TModule | null;
@@ -697,6 +698,12 @@ export function buildAppPageElements<
   }
 
   const routeLoadingComponent = getDefaultExport(options.route.loading);
+  const routeLoadingTreePosition = options.route.loadingTreePosition ?? routeSegments.length;
+  const shouldRenderRouteLoadingBoundary =
+    routeLoadingComponent !== null && !shouldSuppressLoadingBoundaries(renderMode);
+  const routeLoadingLayoutIndex = shouldRenderRouteLoadingBoundary
+    ? layoutEntries.findIndex((entry) => entry.treePosition > routeLoadingTreePosition)
+    : -1;
   const isPrefetchLoadingShell = renderMode === APP_RSC_RENDER_MODE_PREFETCH_LOADING_SHELL;
   const shouldRenderPrefetchLoadingShell = isPrefetchLoadingShell && routeLoadingComponent !== null;
   if (shouldRenderPrefetchLoadingShell) {
@@ -707,9 +714,18 @@ export function buildAppPageElements<
     elements[APP_PREFETCH_LOADING_SHELL_MARKER_KEY] = "LoadingBoundary";
   }
 
-  elements[pageElementId] = isPrefetchLoadingShell
+  let pageElement = isPrefetchLoadingShell
     ? null
     : renderAfterAppDependencies(options.element, pageDependencies);
+  if (pageElement !== null && shouldRenderRouteLoadingBoundary && routeLoadingLayoutIndex === -1) {
+    const RouteLoadingComponent = routeLoadingComponent;
+    pageElement = (
+      <Suspense key={routeResetKey} fallback={<RouteLoadingComponent />}>
+        {pageElement}
+      </Suspense>
+    );
+  }
+  elements[pageElementId] = pageElement;
 
   for (const templateEntry of templateEntries) {
     const templateComponent = getDefaultExport(templateEntry.templateModule);
@@ -773,7 +789,7 @@ export function buildAppPageElements<
 
     const LayoutComponent = layoutComponent;
     const layoutDependency = layoutDependenciesByIndex.get(index);
-    const layoutElement = layoutDependency ? (
+    let layoutElement: ReactNode = layoutDependency ? (
       renderWithAppDependencyBarrier(
         <LayoutComponent {...layoutProps}>
           <Children />
@@ -785,6 +801,14 @@ export function buildAppPageElements<
         <Children />
       </LayoutComponent>
     );
+    if (shouldRenderRouteLoadingBoundary && routeLoadingLayoutIndex === index) {
+      const RouteLoadingComponent = routeLoadingComponent;
+      layoutElement = (
+        <Suspense key={routeResetKey} fallback={<RouteLoadingComponent />}>
+          {layoutElement}
+        </Suspense>
+      );
+    }
     elements[layoutEntry.id] = renderAfterAppDependencies(
       layoutElement,
       layoutDependenciesBefore[index] ?? [],
@@ -967,19 +991,6 @@ export function buildAppPageElements<
     // This keeps the loading fallback visible during redirect-driven
     // transitions rather than unmounting it.
     routeChildren = <RedirectBoundary>{routeChildren}</RedirectBoundary>;
-
-    if (routeLoadingComponent && !shouldSuppressLoadingBoundaries(renderMode)) {
-      const RouteLoadingComponent = routeLoadingComponent;
-      // Route-level wrappers cover the full page branch in vinext's flat element
-      // transport, so their reset key includes the visible segment-state path.
-      // Dynamic param changes reset the pending boundary, while search-only changes
-      // preserve it.
-      routeChildren = (
-        <Suspense key={routeResetKey} fallback={<RouteLoadingComponent />}>
-          {routeChildren}
-        </Suspense>
-      );
-    }
 
     // Mount the scroll/focus target *outside* the loading Suspense so it does
     // not suspend with the page content. Next.js places ScrollAndMaybeFocusHandler
