@@ -557,6 +557,7 @@ describe("Link App Router navigation scheduling", () => {
         id: expect.any(Number),
       }),
       "transition",
+      expect.objectContaining({ disableOptimisticRouteShell: true }),
     );
     expect(transitionStates).toEqual([true]);
   });
