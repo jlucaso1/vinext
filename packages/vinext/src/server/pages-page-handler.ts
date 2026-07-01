@@ -14,6 +14,7 @@
 
 import type { ComponentType, ReactNode } from "react";
 import { mergeRouteParamsIntoQuery, parseQueryString as parseQuery } from "../utils/query.js";
+import { buildInitialPagesRouterQuery } from "./pages-request-pipeline.js";
 import { patternToNextFormat } from "../routing/route-validation.js";
 import { resolvePagesI18nRequest } from "./pages-i18n.js";
 import { createPagesReqRes } from "./pages-node-compat.js";
@@ -192,6 +193,7 @@ type RenderPageOptions = {
   statusCode?: number;
   asPath?: string;
   originalUrl?: string;
+  rewriteQueryKeys?: string[];
   renderErrorPageOnMiss?: boolean;
   __isInternalErrorRender?: boolean;
   __forcedRoute?: PageRoute;
@@ -429,6 +431,7 @@ export function createPagesPageHandler(
         const renderStatusCode =
           renderStatusCodeOverride ?? (routePattern === "/404" ? 404 : undefined);
         const query = mergeRouteParamsIntoQuery(parseQuery(routeUrl), params);
+        const initialQuery = buildInitialPagesRouterQuery(query, params, options?.rewriteQueryKeys);
 
         // Model Pages Router readiness for `next/navigation` compat hooks. The
         // serialized `__NEXT_DATA__` flags (gssp/gsp/gip/appGip/autoExport) plus
@@ -454,6 +457,7 @@ export function createPagesPageHandler(
             setSSRContext({
               pathname: routePattern,
               query,
+              initialQuery,
               asPath: renderAsPath ?? routeUrl,
               navigationIsReady,
               locale,
@@ -594,6 +598,7 @@ export function createPagesPageHandler(
           AppComponent,
           params,
           query,
+          initialQuery,
           asPath: renderAsPath ?? routeUrl,
           resolvedUrl: pagesResolvedUrl,
           renderIsrPassToStringAsync,
@@ -657,6 +662,7 @@ export function createPagesPageHandler(
           setSSRContext({
             pathname: routePattern,
             query,
+            initialQuery,
             asPath: renderAsPath ?? routeUrl,
             navigationIsReady: false,
             locale,
@@ -763,6 +769,7 @@ export function createPagesPageHandler(
           pageProps,
           props: renderProps,
           params,
+          initialQuery,
           query,
           renderDocumentToString(element) {
             return renderToStringAsync(element);

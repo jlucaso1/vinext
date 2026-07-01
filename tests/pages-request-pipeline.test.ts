@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vite-plus/test";
 import {
+  buildInitialPagesRouterQuery,
   runPagesRequest,
   wrapMiddlewareWithBasePath,
   type PagesPipelineDeps,
@@ -42,6 +43,26 @@ function makeRenderPage(status = 200, body = "ok") {
       new Response(body, { status }),
   );
 }
+
+describe("buildInitialPagesRouterQuery", () => {
+  // Ported from Next.js: test/e2e/middleware-rewrites/test/index.test.ts
+  // https://github.com/vercel/next.js/blob/canary/test/e2e/middleware-rewrites/test/index.test.ts
+  it("preserves source params added by a static config rewrite", () => {
+    expect(buildInitialPagesRouterQuery({ rewriteSlug: "post-2" }, {}, ["rewriteSlug"])).toEqual({
+      rewriteSlug: "post-2",
+    });
+  });
+
+  it("lets route params win over rewrite query params", () => {
+    expect(
+      buildInitialPagesRouterQuery(
+        { slug: "from-rewrite", rewriteSlug: "post-2" },
+        { slug: "route-param" },
+        ["slug", "rewriteSlug"],
+      ),
+    ).toEqual({ slug: "route-param", rewriteSlug: "post-2" });
+  });
+});
 
 // 1. Trailing-slash: /foo/ with trailingSlash: false → {type:"response"} with status 308
 describe("trailing slash normalization", () => {
@@ -456,6 +477,26 @@ describe("middleware", () => {
     );
   });
 
+  it("tracks query keys introduced by middleware rewrites", async () => {
+    const renderPage = makeRenderPage(200, "rewrite target");
+    const result = await runPagesRequest(
+      makeRequest("/foo"),
+      baseDeps({
+        runMiddleware: makeMiddleware({ continue: true, rewriteUrl: "/bar?mw=1" }),
+        renderPage,
+      }),
+    );
+
+    expect(result.type).toBe("response");
+    if (result.type !== "response") return;
+    expect(renderPage).toHaveBeenCalledWith(
+      expect.any(Request),
+      "/bar?mw=1",
+      { rewriteQueryKeys: ["mw"] },
+      expect.any(Headers),
+    );
+  });
+
   it.each([
     { i18nConfig: null, requestPath: "/ssr-page", rewritePath: "/ssr-page-2" },
     {
@@ -707,7 +748,7 @@ describe("beforeFiles rewrites", () => {
     expect(renderPage).toHaveBeenCalledWith(
       expect.any(Request),
       "/to?keep=1&stage=1",
-      undefined,
+      { rewriteQueryKeys: ["stage"] },
       expect.any(Headers),
     );
   });
@@ -735,7 +776,7 @@ describe("beforeFiles rewrites", () => {
     expect(renderPage).toHaveBeenCalledWith(
       expect.any(Request),
       "/destination?first=1&second=2",
-      undefined,
+      { rewriteQueryKeys: ["first", "second"] },
       expect.any(Headers),
     );
     expect(result.response.headers.get("x-nextjs-rewrite")).toBe("/destination?first=1&second=2");
@@ -1200,7 +1241,7 @@ describe("afterFiles rewrites", () => {
     expect(renderPage).toHaveBeenCalledWith(
       expect.any(Request),
       "/ssg?slug=first",
-      { isDataReq: true },
+      { isDataReq: true, rewriteQueryKeys: ["slug"] },
       expect.any(Headers),
     );
     expect(result.response.headers.get("x-middleware-skip")).toBeNull();
@@ -1508,7 +1549,7 @@ describe("deferred error page re-render on 404", () => {
     expect(renderPage).toHaveBeenCalledWith(
       expect.any(Request),
       "/fallback-target?from=fallback",
-      undefined,
+      { rewriteQueryKeys: ["from"] },
       expect.any(Headers),
     );
     expect(result.response.headers.get("x-nextjs-rewrite")).toBe("/fallback-target?from=fallback");

@@ -72,6 +72,7 @@ import {
   mergeRewriteQuery,
   mergeRouteParamsIntoQuery,
   parseQueryString,
+  setQueryValue,
   type UrlQuery,
   urlQueryToSearchParams,
 } from "../utils/query.js";
@@ -149,6 +150,8 @@ function PagesRouterCommitBoundaryHelper({
 function renderPagesRouterElement(
   element: ReactElement,
   scroll?: ScrollPosition | null,
+  beforeCommit?: () => void,
+  pendingAsPath?: string,
 ): Promise<void> {
   const root = window.__VINEXT_ROOT__;
   if (!root) {
@@ -157,8 +160,27 @@ function renderPagesRouterElement(
 
   cancelPreviousRenderCommit();
 
+  const pendingSnapshotToken =
+    pendingAsPath !== undefined ? Symbol("vinext.pagesRouter.pendingSnapshot") : null;
+  if (pendingSnapshotToken && pendingAsPath !== undefined) {
+    routerRuntimeState.pendingRouterSnapshot = {
+      token: pendingSnapshotToken,
+      snapshot: getRouterSnapshotForAsPath(pendingAsPath),
+    };
+  }
+
+  const clearPendingSnapshotIfCurrent = () => {
+    if (
+      pendingSnapshotToken &&
+      routerRuntimeState.pendingRouterSnapshot?.token === pendingSnapshotToken
+    ) {
+      routerRuntimeState.pendingRouterSnapshot = undefined;
+    }
+  };
+
   return new Promise<void>((resolve, reject) => {
     const cancel = () => {
+      clearPendingSnapshotIfCurrent();
       if (routerRuntimeState.cancelPendingRenderCommit === cancel) {
         routerRuntimeState.cancelPendingRenderCommit = null;
       }
@@ -190,23 +212,29 @@ function renderPagesRouterElement(
             if (!isCurrent()) return;
 
             try {
+              beforeCommit?.();
               await scrollHandler();
               if (!isCurrent()) return;
+              clearPendingSnapshotIfCurrent();
               clearIfCurrent();
               resolve();
             } catch (err) {
+              clearPendingSnapshotIfCurrent();
               clearIfCurrent();
               reject(err);
             }
           })();
         },
         (error) => {
+          clearPendingSnapshotIfCurrent();
           clearIfCurrent();
           reject(error);
         },
       ),
     );
     if (!hasBrowserDocument()) {
+      beforeCommit?.();
+      clearPendingSnapshotIfCurrent();
       clearIfCurrent();
       resolve();
     }
@@ -418,6 +446,10 @@ function createRouterEvents(): RouterEvents {
 type PagesRouterRuntimeState = {
   events: RouterEvents;
   components?: PagesRouterRuntimeComponents;
+  pendingRouterSnapshot?: {
+    token: symbol;
+    snapshot: PagesRouterSnapshot;
+  };
   currentHistoryKey?: string;
   historyKeyCounter: number;
   navigationId: number;
@@ -440,6 +472,13 @@ type PagesRouterRuntimeComponents = {
     onError: (error: Error) => void;
   }>;
   Provider: ComponentType<{ children: ReactNode }>;
+};
+
+type PagesRouterSnapshot = {
+  pathname: string;
+  query: Record<string, string | string[]>;
+  asPath: string;
+  isReady: boolean;
 };
 
 const PAGES_ROUTER_RUNTIME_STATE_KEY = Symbol.for("vinext.pagesRouter.runtimeState");
@@ -914,6 +953,7 @@ function readScrollPositionFromSessionStorage(key: string): ScrollPosition | nul
 type SSRContext = {
   pathname: string;
   query: Record<string, string | string[]>;
+  initialQuery?: Record<string, string | string[]>;
   asPath: string;
   navigationIsReady?: boolean;
   nextData?: VinextNextData;
@@ -1015,6 +1055,37 @@ function _buildClientPagesNavigationContext(
   return ctx;
 }
 
+function getPendingPagesNavigationContext(
+  nextData: VinextNextData | undefined,
+): PagesNavigationContextShape | null {
+  const pending = routerRuntimeState.pendingRouterSnapshot?.snapshot;
+  if (!pending) return null;
+
+  let resolvedPath: string;
+  let searchString: string;
+  try {
+    const pendingUrl = new URL(
+      toBrowserNavigationHref(pending.asPath, window.location.href, __basePath),
+      window.location.href,
+    );
+    resolvedPath = stripBasePath(pendingUrl.pathname, __basePath);
+    searchString = pendingUrl.search;
+  } catch {
+    resolvedPath = stripHash(pending.asPath).split("?", 1)[0] || pending.pathname;
+    searchString = pending.asPath.includes("?") ? `?${pending.asPath.split("?", 2)[1]}` : "";
+  }
+
+  const routePattern =
+    resolvePagesRoutePatternForPath(pending.pathname, resolvedPath) ?? pending.pathname;
+  return _buildClientPagesNavigationContext(
+    routePattern,
+    resolvedPath,
+    searchString,
+    pending.isReady,
+    nextData,
+  );
+}
+
 // Server-side cache for snapshot stability. React's `useSyncExternalStore`
 // expects `getServerSnapshot` to return a stable reference within a single
 // render so it can use Object.is to decide whether to bail out. The SSR ctx is
@@ -1091,8 +1162,11 @@ export function getPagesNavigationContext(): PagesNavigationContextShape | null 
   // carry __NEXT_DATA__, so treating that alone as a Pages signal would let
   // compat fallback state shadow App Router navigation snapshots.
   if (!isPagesRouterDocumentActive()) return null;
-  const resolvedPath = stripBasePath(window.location.pathname, __basePath);
   const nextData = window.__NEXT_DATA__ as VinextNextData | undefined;
+  const pendingCtx = getPendingPagesNavigationContext(nextData);
+  if (pendingCtx) return pendingCtx;
+
+  const resolvedPath = stripBasePath(window.location.pathname, __basePath);
   const pattern = resolvePagesRoutePatternForPath(nextData?.page, resolvedPath);
   if (!pattern) return null;
   return _buildClientPagesNavigationContext(
@@ -1256,14 +1330,35 @@ function getPathnameAndQuery(): {
     const _ssrCtx = _getSSRContext();
     if (_ssrCtx) {
       const query: Record<string, string | string[]> = {};
-      for (const [key, value] of Object.entries(_ssrCtx.query)) {
-        query[key] = Array.isArray(value) ? [...value] : value;
+      const sourceQuery =
+        _ssrCtx.navigationIsReady === false ? (_ssrCtx.initialQuery ?? {}) : _ssrCtx.query;
+      for (const [key, value] of Object.entries(sourceQuery)) {
+        setQueryValue(query, key, Array.isArray(value) ? [...value] : value);
       }
       return { pathname: _ssrCtx.pathname, query, asPath: _ssrCtx.asPath };
     }
     return { pathname: "/", query: {}, asPath: "/" };
   }
-  const resolvedPath = stripBasePath(window.location.pathname, __basePath);
+
+  return getPathnameAndQueryForBrowserLocation(
+    window.location.pathname,
+    window.location.search,
+    window.location.hash,
+    getCurrentHistoryAsPath(),
+  );
+}
+
+function getPathnameAndQueryForBrowserLocation(
+  locationPathname: string,
+  locationSearch: string,
+  locationHash: string,
+  asPathOverride?: string | null,
+): {
+  pathname: string;
+  query: Record<string, string | string[]>;
+  asPath: string;
+} {
+  const resolvedPath = stripBasePath(locationPathname, __basePath);
   // In Next.js, router.pathname is the route pattern (e.g., "/posts/[id]"),
   // not the resolved path ("/posts/42"). __NEXT_DATA__.page holds the route
   // pattern and is updated by navigateClient() on every client-side navigation.
@@ -1272,15 +1367,43 @@ function getPathnameAndQuery(): {
   const routeQuery = getRouteQueryFromNextData(nextData, resolvedPath);
   // URL search params always reflect the current URL
   const searchQuery: Record<string, string | string[]> = {};
-  const params = new URLSearchParams(window.location.search);
+  const params = new URLSearchParams(locationSearch);
   for (const [key, value] of params) {
     addQueryParam(searchQuery, key, value);
   }
   const query = { ...searchQuery, ...routeQuery };
   // asPath uses the resolved browser path, not the route pattern
-  const asPath =
-    getCurrentHistoryAsPath() ?? resolvedPath + window.location.search + window.location.hash;
+  const asPath = asPathOverride ?? resolvedPath + locationSearch + locationHash;
   return { pathname, query, asPath };
+}
+
+function getRouterSnapshotForAsPath(asPath: string): PagesRouterSnapshot {
+  let browserPathname: string;
+  let browserSearch: string;
+  let browserHash: string;
+  try {
+    const browserUrl = new URL(
+      toBrowserNavigationHref(asPath, window.location.href, __basePath),
+      window.location.href,
+    );
+    browserPathname = browserUrl.pathname;
+    browserSearch = browserUrl.search;
+    browserHash = browserUrl.hash;
+  } catch {
+    const asPathWithoutHash = stripHash(asPath);
+    browserPathname = asPathWithoutHash.split("?", 1)[0] || window.location.pathname;
+    browserSearch = asPathWithoutHash.includes("?") ? `?${asPathWithoutHash.split("?", 2)[1]}` : "";
+    browserHash = extractHash(asPath);
+  }
+  return {
+    ...getPathnameAndQueryForBrowserLocation(browserPathname, browserSearch, browserHash, asPath),
+    isReady: isPagesRouterReady(),
+  };
+}
+
+function getAppAsPathFromBrowserHref(href: string): string {
+  const browserUrl = new URL(href, window.location.href);
+  return stripBasePath(browserUrl.pathname, __basePath) + browserUrl.search + browserUrl.hash;
 }
 
 function getCurrentHistoryAsPath(): string | null {
@@ -1393,7 +1516,11 @@ function PagesRouterHydrationMarker(): null {
   return null;
 }
 
-function getRouterSnapshot(): ReturnType<typeof getPathnameAndQuery> & { isReady: boolean } {
+function getRouterSnapshot(): PagesRouterSnapshot {
+  if (typeof window !== "undefined" && routerRuntimeState.pendingRouterSnapshot) {
+    return routerRuntimeState.pendingRouterSnapshot.snapshot;
+  }
+
   // On the server, derive `router.isReady` from the SSR navigation-readiness
   // context (auto-export dynamic / query-string / rewrite-capable routes are
   // not ready until the client router publishes the live URL). Mirrors Next.js
@@ -1406,6 +1533,10 @@ function getRouterSnapshot(): ReturnType<typeof getPathnameAndQuery> & { isReady
       ? (_getSSRContext()?.navigationIsReady ?? true)
       : isPagesRouterReady();
   return { ...getPathnameAndQuery(), isReady };
+}
+
+function getActiveRouterUrlSnapshot(): PagesRouterSnapshot {
+  return getRouterSnapshot();
 }
 
 function notifyNextNavigationPagesContext(): void {
@@ -1452,7 +1583,10 @@ function scheduleHardNavigationAndThrow(url: string, message: string): never {
 
 type NavigateClientOptions = {
   allowNotFoundResponse?: boolean;
+  beforeCommit?: () => void;
   locale?: string;
+  pendingAsPath?: string;
+  setHistoryCommitTarget?: (target: RedirectHistoryCommitTarget) => void;
   /**
    * The history mode of the originating navigation. Used when a gSSP/gSP data
    * response carries a `__N_REDIRECT` marker so the re-entrant navigation to
@@ -1462,6 +1596,21 @@ type NavigateClientOptions = {
   mode?: "push" | "replace";
   scroll?: ScrollPosition | null;
 };
+
+type RedirectHistoryCommitTarget = {
+  fullUrl: string;
+  appAsPath: string;
+};
+
+function withRedirectedNavigationTarget(
+  options: NavigateClientOptions,
+  redirectedHref: string,
+): NavigateClientOptions {
+  const pendingAsPath = getAppAsPathFromBrowserHref(redirectedHref);
+  options.setHistoryCommitTarget?.({ fullUrl: redirectedHref, appAsPath: pendingAsPath });
+  if (options.pendingAsPath === pendingAsPath) return options;
+  return { ...options, pendingAsPath };
+}
 
 /** Wire format of `/_next/data/<id>/<page>.json` response bodies. */
 type PagesDataResponse = {
@@ -1825,6 +1974,7 @@ type MiddlewareDataEffect = {
   dataHref: string;
   redirectLocation: string | null;
   rewriteTarget: string | null;
+  skip: boolean;
   response: Response;
 };
 
@@ -1862,6 +2012,7 @@ async function resolveMiddlewareDataEffect(
       dataHref: getPagesDataCacheHref(dataUrl),
       redirectLocation: res.headers.get("x-nextjs-redirect"),
       rewriteTarget: res.headers.get("x-nextjs-rewrite"),
+      skip: res.headers.get("x-middleware-skip") !== null,
       response: res,
     };
   } catch {
@@ -2044,7 +2195,12 @@ async function renderPagesNavigationTarget(
   const nextData = buildPagesNavigationNextData(target, props);
   window.__NEXT_DATA__ = nextData;
   applyVinextLocaleGlobals(window, nextData);
-  await renderPagesRouterElement(element, options.scroll);
+  await renderPagesRouterElement(
+    element,
+    options.scroll,
+    options.beforeCommit,
+    options.pendingAsPath,
+  );
   assertStillCurrent();
 }
 
@@ -2175,10 +2331,14 @@ async function navigateClientData(
       scheduleHardNavigationAndThrow(softRedirect, "Navigation redirected externally");
     }
 
-    window.history.replaceState(window.history.state ?? {}, "", redirectedUrl);
-    routerRuntimeState.lastPathnameAndSearch = window.location.pathname + window.location.search;
-    routerRuntimeState.lastHash = window.location.hash;
-    await navigateClientHtml(redirectedUrl, redirectedUrl, controller, navId, assertStillCurrent);
+    await navigateClientHtml(
+      redirectedUrl,
+      redirectedUrl,
+      controller,
+      navId,
+      assertStillCurrent,
+      withRedirectedNavigationTarget(options, redirectedUrl),
+    );
     return;
   }
 
@@ -2254,7 +2414,7 @@ async function navigateClientHtml(
   options: NavigateClientOptions = {},
 ): Promise<void> {
   let browserUrl = url;
-  let pendingRedirectHistoryUrl: string | null = fetchUrl === url ? null : url;
+  let redirectedHistoryUrl: string | null = null;
   const root = window.__VINEXT_ROOT__;
   if (!root) {
     // No React root yet — fall back to hard navigation
@@ -2282,7 +2442,7 @@ async function navigateClientHtml(
     const redirectedUrl = resolveSameOriginRedirectedUrl(res.url);
     if (redirectedUrl) {
       browserUrl = redirectedUrl;
-      pendingRedirectHistoryUrl = redirectedUrl;
+      redirectedHistoryUrl = redirectedUrl;
     }
   }
 
@@ -2403,14 +2563,17 @@ async function navigateClientHtml(
   // has passed assertStillCurrent(). The post-render await below waits for the
   // stable Pages Router commit boundary before routeChangeComplete, matching
   // Next.js's client Root callback without remounting the page tree.
-  if (pendingRedirectHistoryUrl) {
-    window.history.replaceState(window.history.state ?? {}, "", pendingRedirectHistoryUrl);
-    routerRuntimeState.lastPathnameAndSearch = window.location.pathname + window.location.search;
-    routerRuntimeState.lastHash = window.location.hash;
-  }
   window.__NEXT_DATA__ = nextData;
   applyVinextLocaleGlobals(window, nextData);
-  await renderPagesRouterElement(element, options.scroll);
+  const renderOptions = redirectedHistoryUrl
+    ? withRedirectedNavigationTarget(options, redirectedHistoryUrl)
+    : options;
+  await renderPagesRouterElement(
+    element,
+    renderOptions.scroll,
+    renderOptions.beforeCommit,
+    renderOptions.pendingAsPath,
+  );
   assertStillCurrent();
 }
 
@@ -2484,12 +2647,12 @@ async function navigateClient(
         if (!redirectedUrl) {
           scheduleHardNavigationAndThrow(configRedirect, "Navigation redirected externally");
         }
-        window.history.replaceState(window.history.state ?? {}, "", redirectedUrl);
-        routerRuntimeState.lastPathnameAndSearch =
-          window.location.pathname + window.location.search;
-        routerRuntimeState.lastHash = window.location.hash;
         browserUrl = redirectedUrl;
         htmlFetchUrl = redirectedUrl;
+      }
+      let activeNavigateOptions = options;
+      if (configRedirect) {
+        activeNavigateOptions = withRedirectedNavigationTarget(options, browserUrl);
       }
       let routeLookupUrl = configRedirect ? browserUrl : routeUrl;
       if (routeUrl === url && hasClientRewriteRules()) {
@@ -2565,17 +2728,14 @@ async function navigateClient(
         if (!redirectedUrl) {
           scheduleHardNavigationAndThrow(redirectLocation, "Navigation redirected externally");
         }
-        window.history.replaceState(window.history.state ?? {}, "", redirectedUrl);
-        routerRuntimeState.lastPathnameAndSearch =
-          window.location.pathname + window.location.search;
-        routerRuntimeState.lastHash = window.location.hash;
         browserUrl = redirectedUrl;
         htmlFetchUrl = redirectedUrl;
+        activeNavigateOptions = withRedirectedNavigationTarget(options, redirectedUrl);
       } else if (middlewareEffect) {
         // A masked navigation probes middleware using the browser-visible URL but must fetch page
         // data using the route URL. Without a rewrite header those are different requests, so do
         // not reuse the probe response even though that means one extra request for this rare path.
-        if (middlewareEffect.rewriteTarget || routeUrl === url) {
+        if (!middlewareEffect.skip && (middlewareEffect.rewriteTarget || routeUrl === url)) {
           middlewareDataResponse = middlewareEffect.response;
         }
         if (middlewareEffect.rewriteTarget) {
@@ -2605,11 +2765,17 @@ async function navigateClient(
           controller,
           navId,
           assertStillCurrent,
-          options,
+          activeNavigateOptions,
           middlewareDataResponse,
         );
       } else if (dataTarget) {
-        await navigateClientNoData(browserUrl, dataTarget, controller, assertStillCurrent, options);
+        await navigateClientNoData(
+          browserUrl,
+          dataTarget,
+          controller,
+          assertStillCurrent,
+          activeNavigateOptions,
+        );
       } else {
         await navigateClientHtml(
           browserUrl,
@@ -2617,7 +2783,7 @@ async function navigateClient(
           controller,
           navId,
           assertStillCurrent,
-          options,
+          activeNavigateOptions,
         );
       }
     }
@@ -3124,14 +3290,78 @@ async function performNavigation(
   if (!isQueryUpdating) {
     routerEvents.emit("routeChangeStart", resolved, { shallow });
   }
-  routerEvents.emit("beforeHistoryChange", resolved, { shallow });
-  updateHistory(mode, full, navState);
   if (!shallow) {
+    const delayHistoryUntilRenderCommit = hasBrowserDocument();
+    const historyCommitOrigin = delayHistoryUntilRenderCommit
+      ? window.location.pathname + window.location.search + window.location.hash
+      : null;
+    let historyCommitTarget: RedirectHistoryCommitTarget | null = null;
+    let didCommitHistory = false;
+    const getCommitMode = (targetFullUrl: string) =>
+      mode === "push" && historyCommitOrigin === targetFullUrl ? "replace" : mode;
+    const commitHistoryTarget = (
+      target: RedirectHistoryCommitTarget,
+      targetMode = getCommitMode(target.fullUrl),
+    ) => {
+      const appAsPath = target.appAsPath;
+      const appStatePath = stripHash(appAsPath);
+      routerEvents.emit("beforeHistoryChange", appAsPath, { shallow });
+      updateHistory(targetMode, target.fullUrl, {
+        url: appStatePath,
+        as: appStatePath,
+        options: navStateOptions,
+      });
+    };
+    const setHistoryCommitTarget = (target: RedirectHistoryCommitTarget) => {
+      historyCommitTarget = target;
+      if (!delayHistoryUntilRenderCommit && didCommitHistory) {
+        commitHistoryTarget(target, "replace");
+      }
+    };
+    const commitNavigationHistory = () => {
+      if (didCommitHistory) return;
+      didCommitHistory = true;
+      if (historyCommitTarget) {
+        commitHistoryTarget(historyCommitTarget);
+        return;
+      }
+      if (
+        historyCommitOrigin !== null &&
+        window.location.pathname + window.location.search + window.location.hash !==
+          historyCommitOrigin
+      ) {
+        const currentFullUrl =
+          window.location.pathname + window.location.search + window.location.hash;
+        const currentAs =
+          stripBasePath(window.location.pathname, __basePath) +
+          window.location.search +
+          window.location.hash;
+        const currentStatePath = stripHash(currentAs);
+        routerEvents.emit("beforeHistoryChange", currentAs, { shallow });
+        updateHistory(getCommitMode(currentFullUrl), currentFullUrl, {
+          url: currentStatePath,
+          as: currentStatePath,
+          options: navStateOptions,
+        });
+        return;
+      }
+      routerEvents.emit("beforeHistoryChange", resolved, { shallow });
+      updateHistory(mode, full, navState);
+    };
+    if (!delayHistoryUntilRenderCommit) {
+      commitNavigationHistory();
+    }
     const result = await runNavigateClient(
       full,
       resolved,
       htmlFetchUrl,
-      navigateOptions,
+      {
+        ...navigateOptions,
+        beforeCommit: delayHistoryUntilRenderCommit ? commitNavigationHistory : undefined,
+        pendingAsPath: delayHistoryUntilRenderCommit ? resolved : undefined,
+        setHistoryCommitTarget,
+        mode,
+      },
       // When href and as differ, the data fetch must target the route URL
       // (the module that actually renders), not the masked display URL.
       // fullRouteUrl === full when there is no mask, so this is a no-op
@@ -3141,6 +3371,8 @@ async function performNavigation(
     if (result === "cancelled") return true;
     if (result === "failed") return false;
   } else {
+    routerEvents.emit("beforeHistoryChange", resolved, { shallow });
+    updateHistory(mode, full, navState);
     // Shallow navigations skip the render-commit path, so apply the scroll
     // reset synchronously here — before routeChangeComplete. This matches the
     // non-shallow path, where the x/y reset runs inside the render-commit
@@ -3245,7 +3477,9 @@ export function useRouter(): NextRouter {
 }
 
 function PagesRouterProvider({ children }: { children: ReactNode }): ReactElement {
-  const [{ pathname, query, asPath, isReady }, setState] = useState(getRouterSnapshot);
+  const [state, setState] = useState(getRouterSnapshot);
+  const activeSnapshot = routerRuntimeState.pendingRouterSnapshot?.snapshot ?? state;
+  const { pathname, query, asPath, isReady } = activeSnapshot;
 
   // Popstate is handled by the Pages Router client entry via
   // installPagesRouterRuntime() so beforePopState() is consistently enforced
@@ -3507,6 +3741,22 @@ function handlePagesRouterPopState(e: PopStateEvent): void {
   // their locale-qualified HTML endpoint (parity with the push path).
   const stateLocale = isNextRouterState(state) ? state.options?.locale : undefined;
   const effectiveLocale = typeof stateLocale === "string" ? stateLocale : window.__VINEXT_LOCALE__;
+  const popStateOptions: { locale?: string; shallow: boolean } = { shallow: false };
+  if (typeof stateLocale === "string") popStateOptions.locale = stateLocale;
+  let redirectedPopStateTarget: RedirectHistoryCommitTarget | null = null;
+  const setPopStateHistoryCommitTarget = (target: RedirectHistoryCommitTarget) => {
+    redirectedPopStateTarget = target;
+  };
+  const commitRedirectedPopStateHistory = () => {
+    if (!redirectedPopStateTarget) return;
+
+    const appStatePath = stripHash(redirectedPopStateTarget.appAsPath);
+    updateHistory("replace", redirectedPopStateTarget.fullUrl, {
+      url: appStatePath,
+      as: appStatePath,
+      options: popStateOptions,
+    });
+  };
 
   const fullAppUrl = appUrl + window.location.hash;
   routerEvents.emit("routeChangeStart", fullAppUrl, { shallow: false });
@@ -3555,7 +3805,11 @@ function handlePagesRouterPopState(e: PopStateEvent): void {
       browserUrl,
       fullAppUrl,
       getPagesHtmlFetchUrl(stateRouteUrl, effectiveLocale),
-      { scroll: scrollTarget },
+      {
+        scroll: scrollTarget,
+        beforeCommit: commitRedirectedPopStateHistory,
+        setHistoryCommitTarget: setPopStateHistoryCommitTarget,
+      },
       stateRouteUrl,
     );
     if (result === "completed") {
@@ -3782,13 +4036,13 @@ const Router: typeof RouterMethods & Omit<NextRouter, keyof typeof RouterMethods
     pathname: {
       enumerable: true,
       get(): string {
-        return getPathnameAndQuery().pathname;
+        return getActiveRouterUrlSnapshot().pathname;
       },
     },
     route: {
       enumerable: true,
       get(): string {
-        const { pathname } = getPathnameAndQuery();
+        const { pathname } = getActiveRouterUrlSnapshot();
         if (typeof window === "undefined") return pathname;
         const nextData = window.__NEXT_DATA__ as VinextNextData | undefined;
         return nextData?.page ?? pathname;
@@ -3797,13 +4051,13 @@ const Router: typeof RouterMethods & Omit<NextRouter, keyof typeof RouterMethods
     query: {
       enumerable: true,
       get(): Record<string, string | string[]> {
-        return getPathnameAndQuery().query;
+        return getActiveRouterUrlSnapshot().query;
       },
     },
     asPath: {
       enumerable: true,
       get(): string {
-        return getPathnameAndQuery().asPath;
+        return getActiveRouterUrlSnapshot().asPath;
       },
     },
     basePath: { enumerable: true, value: __basePath, writable: false },

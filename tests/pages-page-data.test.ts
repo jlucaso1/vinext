@@ -113,6 +113,29 @@ describe("pages page data", () => {
     expect(html).toContain('"__vinext":{"hasMiddleware":true}');
   });
 
+  it("does not write rewrite-specific initial query into regenerated ISR HTML", async () => {
+    const html = await renderPagesIsrHtml({
+      buildId: "build-123",
+      cachedHtml:
+        '<!DOCTYPE html><html><head></head><body><div id="__next"><div>stale-body</div></div><script id="__NEXT_DATA__" type="application/json">{"old":1}</script></body></html>',
+      createPageElement(_pageProps: Record<string, unknown>) {
+        return "page";
+      },
+      i18n: {},
+      initialQuery: { slug: "post", rewriteSlug: "from-rewrite" },
+      pageProps: { title: "fresh" },
+      params: { slug: "post" },
+      renderIsrPassToStringAsync: vi.fn(async () => "<div>fresh-body</div>"),
+      routePattern: "/posts/[slug]",
+      safeJsonStringify(value: unknown) {
+        return JSON.stringify(value);
+      },
+    });
+
+    expect(html).toContain('"query":{"slug":"post"}');
+    expect(html).not.toContain("from-rewrite");
+  });
+
   it("preserves custom app props in fallback shells", async () => {
     const AppComponent = Object.assign(function App() {}, {
       getInitialProps() {

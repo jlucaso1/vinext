@@ -250,6 +250,22 @@ describe("pages page response", () => {
     );
   });
 
+  it("does not cache ISR HTML with rewrite-specific initial query", async () => {
+    const common = createCommonOptions();
+
+    const response = await renderPagesPageResponse({
+      ...common.options,
+      initialQuery: { slug: "post", rewriteSlug: "from-rewrite" },
+      isrRevalidateSeconds: 60,
+    });
+
+    const html = await response.text();
+    expect(html).toContain('"query":{"slug":"post","rewriteSlug":"from-rewrite"}');
+    await settleMicrotasks();
+
+    expect(common.isrSet).not.toHaveBeenCalled();
+  });
+
   it("records split UTF-8 chunks without corrupting cached ISR HTML", async () => {
     const common = createCommonOptions();
     common.renderToReadableStream.mockResolvedValue(

@@ -85,6 +85,7 @@ import {
 import { attachPagesRequestCookies } from "./pages-node-compat.js";
 import { isBotUserAgent } from "../utils/html-limited-bots.js";
 import { isUnknownRecord } from "../utils/record.js";
+import { buildInitialPagesRouterQuery } from "./pages-request-pipeline.js";
 
 /**
  * Render a React element to a string using renderToReadableStream.
@@ -554,6 +555,7 @@ export function createSSRHandler(
      */
     isDataReq: boolean = false,
     originalUrl: string = url,
+    rewriteQueryKeys: string[] = [],
   ): Promise<void> => {
     const _reqStart = now();
     let _compileEnd: number | undefined;
@@ -663,6 +665,7 @@ export function createSSRHandler(
       ? params
       : null;
     const query = mergeRouteParamsIntoQuery(parseQuery(url), params);
+    const initialQuery = buildInitialPagesRouterQuery(query, params, rewriteQueryKeys);
 
     // Wrap the entire request in a single unified AsyncLocalStorage scope.
     const requestContext = createRequestContext();
@@ -734,6 +737,7 @@ export function createSSRHandler(
           routerShim.setSSRContext({
             pathname: patternToNextFormat(route.pattern),
             query,
+            initialQuery,
             asPath: requestAsPath,
             navigationIsReady,
             nextData: pagesNextData,
@@ -857,6 +861,7 @@ export function createSSRHandler(
               routerShim.setSSRContext({
                 pathname: patternToNextFormat(route.pattern),
                 query,
+                initialQuery,
                 asPath: requestAsPath,
                 navigationIsReady: false,
                 locale: locale ?? currentDefaultLocale,
@@ -1135,6 +1140,7 @@ export function createSSRHandler(
                   ssrContext: {
                     pathname: patternToNextFormat(route.pattern),
                     query,
+                    initialQuery,
                     asPath: requestAsPath,
                     navigationIsReady,
                     locale: locale ?? currentDefaultLocale,
@@ -1238,6 +1244,7 @@ export function createSSRHandler(
                         routerShim.setSSRContext({
                           pathname: patternToNextFormat(route.pattern),
                           query,
+                          initialQuery,
                           asPath: requestAsPath,
                           navigationIsReady,
                           locale: locale ?? currentDefaultLocale,
@@ -1302,7 +1309,7 @@ export function createSSRHandler(
                         {
                           props: freshRenderProps,
                           page: patternToNextFormat(route.pattern),
-                          query: params,
+                          query: initialQuery,
                           buildId: process.env.__VINEXT_BUILD_ID,
                           isFallback: false,
                           locale: locale ?? currentDefaultLocale,
@@ -1738,7 +1745,7 @@ hydrate();
           {
             props: renderProps,
             page: patternToNextFormat(route.pattern),
-            query: params,
+            query: initialQuery,
             buildId: process.env.__VINEXT_BUILD_ID,
             isFallback: isFallbackRender,
             locale: locale ?? currentDefaultLocale,

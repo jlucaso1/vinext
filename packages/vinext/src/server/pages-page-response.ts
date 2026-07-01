@@ -194,6 +194,7 @@ type RenderPagesPageResponseOptions = {
   pageProps: Record<string, unknown>;
   props?: Record<string, unknown>;
   params: Record<string, unknown>;
+  initialQuery?: Record<string, unknown>;
   query?: Record<string, unknown>;
   renderDocumentToString: (element: ReactNode) => Promise<string>;
   renderToReadableStream: (element: ReactNode) => Promise<ReadableStream<Uint8Array>>;
@@ -253,6 +254,33 @@ function buildPagesFontHeadHtml(
   return html;
 }
 
+function queryValueEquals(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right)) return false;
+    if (left.length !== right.length) return false;
+    return left.every((value, index) => value === right[index]);
+  }
+  return left === right;
+}
+
+function hasRewriteSpecificInitialQuery(
+  params: Record<string, unknown>,
+  initialQuery?: Record<string, unknown>,
+): boolean {
+  if (!initialQuery) return false;
+  for (const [key, value] of Object.entries(initialQuery)) {
+    if (!queryValueEquals(params[key], value)) return true;
+  }
+  return false;
+}
+
+export function getCacheSafePagesInitialQuery(
+  params: Record<string, unknown>,
+  initialQuery?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  return hasRewriteSpecificInitialQuery(params, initialQuery) ? undefined : initialQuery;
+}
+
 export function buildPagesNextDataScript(
   options: Pick<
     RenderPagesPageResponseOptions,
@@ -262,6 +290,7 @@ export function buildPagesNextDataScript(
     | "pageProps"
     | "props"
     | "params"
+    | "initialQuery"
     | "routePattern"
     | "safeJsonStringify"
     | "scriptNonce"
@@ -273,7 +302,7 @@ export function buildPagesNextDataScript(
   const nextDataPayload: Record<string, unknown> = {
     props: options.props ?? { pageProps: options.pageProps },
     page: options.routePattern,
-    query: options.params,
+    query: options.initialQuery ?? options.params,
     buildId: options.buildId,
     isFallback: options.isFallback === true,
   };
@@ -491,6 +520,7 @@ export async function renderPagesPageResponse(
     pageProps: options.pageProps,
     props: renderProps,
     params: options.params,
+    initialQuery: options.initialQuery,
     routePattern: options.routePattern,
     safeJsonStringify: options.safeJsonStringify,
     scriptNonce: options.scriptNonce,
@@ -612,6 +642,7 @@ export async function renderPagesPageResponse(
     // Keep nonce-bearing pages out of ISR writes: rewritePagesCachedHtml()
     // later matches the cached __NEXT_DATA__ block via a bare <script> marker.
     !options.scriptNonce &&
+    !hasRewriteSpecificInitialQuery(options.params, options.initialQuery) &&
     options.isrRevalidateSeconds !== null &&
     options.isrRevalidateSeconds > 0
   ) {
