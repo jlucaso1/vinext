@@ -141,7 +141,7 @@ export type AppRoute = {
   /** Loading component path */
   loadingPath: string | null;
   /** Directory depth from app/ that owns the loading boundary. */
-  loadingTreePosition: number | null;
+  loadingTreePosition?: number | null;
   /** Error component path (leaf directory only) */
   errorPath: string | null;
   /**
