@@ -273,7 +273,7 @@ describe("Link App Router prefetch mode", () => {
     expect(resolveLinkPrefetchMode(true, true)).toBe("disabled");
   });
 
-  it("allows automatic full RSC prefetch only for routes without loading-shell prefetches", () => {
+  it("allows automatic full RSC prefetch for static routes and dynamic routes without loading shells", () => {
     const originalWindow = globalThis.window;
     (globalThis as any).window = {
       location: {
@@ -294,7 +294,7 @@ describe("Link App Router prefetch mode", () => {
       expect(canAutoPrefetchFullAppRoute("/blog/hello-world")).toBe(false);
       expect(canAutoPrefetchFullAppRoute("/docs/a/b")).toBe(false);
       expect(canAutoPrefetchFullAppRoute("/products/1")).toBe(true);
-      expect(canAutoPrefetchFullAppRoute("/settings")).toBe(false);
+      expect(canAutoPrefetchFullAppRoute("/settings")).toBe(true);
       expect(canAutoPrefetchFullAppRoute("/missing")).toBe(false);
     } finally {
       if (originalWindow === undefined) {
@@ -305,7 +305,7 @@ describe("Link App Router prefetch mode", () => {
     }
   });
 
-  it("shell-prefetches routes with loading boundaries and full-prefetches routes without them", () => {
+  it("full-prefetches static routes with loading boundaries while preserving dynamic shell-only prefetch", () => {
     const originalWindow = globalThis.window;
     (globalThis as any).window = {
       location: {
@@ -333,7 +333,7 @@ describe("Link App Router prefetch mode", () => {
         shouldPrefetch: true,
       });
       expect(resolveAutoAppRoutePrefetch("/settings")).toEqual({
-        cacheForNavigation: false,
+        cacheForNavigation: true,
         prefetchShellFirst: true,
         shouldPrefetch: true,
       });

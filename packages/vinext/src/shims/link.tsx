@@ -318,12 +318,11 @@ function resolveMatchedAutoAppRoutePrefetch(route: VinextLinkPrefetchRoute): {
 } {
   const hasLoadingShell = route.canPrefetchLoadingShell;
   return {
-    // Vinext does not yet have Next.js's per-segment runtime-prefetch hints.
-    // Routes with loading boundaries prefetch a shell first so navigation can
-    // commit loading.js immediately. Dynamic routes without loading-shell
-    // fallbacks are treated as exact-URL full prefetches; the prefetch cache is
-    // keyed by the concrete RSC URL, so this cannot reuse data across params.
-    cacheForNavigation: !hasLoadingShell,
+    // Next.js fully prefetches static routes, even when a loading boundary is
+    // present. Dynamic routes with loading boundaries prefetch only the shell
+    // so navigation can commit loading.js immediately; dynamic routes without
+    // loading-shell fallbacks are exact-URL full prefetches.
+    cacheForNavigation: !hasLoadingShell || !route.isDynamic,
     prefetchShellFirst: !route.isDynamic,
     shouldPrefetch: true,
   };
