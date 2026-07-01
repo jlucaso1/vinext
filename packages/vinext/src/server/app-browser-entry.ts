@@ -167,7 +167,7 @@ import { createClientReuseManifestHeaderFromVisibleAppState } from "./app-browse
 import {
   createRscRequestHeaders,
   createRscRequestUrl,
-  createLegacyRscRequestUrl,
+  createAuthoritativeRscRequestUrl,
   getVinextRscCompatibilityId,
   VINEXT_RSC_COMPATIBILITY_ID_HEADER,
   VINEXT_RSC_CONTENT_TYPE,
@@ -1742,7 +1742,7 @@ function bootstrapHydration(
             navigationKind === "refresh" ? APP_RSC_RENDER_MODE_REFRESH_PRESERVE_UI : undefined,
         });
         const rscUrl = options?.disableOptimisticRouteShell
-          ? createLegacyRscRequestUrl(url.pathname + url.search, requestHeaders)
+          ? createAuthoritativeRscRequestUrl(url.pathname + url.search, requestHeaders)
           : await createRscRequestUrl(url.pathname + url.search, requestHeaders);
         const visitedResponseCandidate = shouldBypassNavigationCache
           ? {
@@ -2254,6 +2254,9 @@ function bootstrapHydration(
     visibleCommitMode = "transition",
     options,
   ): Promise<void> {
+    // Link owns external/hybrid route filtering before calling this runtime
+    // entrypoint. Keep navigation-start side effects aligned with the shim path.
+    getNavigationRuntime()?.functions.notifyLinkNavigationStart?.();
     stageAppNavigationFailureTarget(href);
     notifyAppRouterTransitionStart(href, historyUpdateMode);
 
