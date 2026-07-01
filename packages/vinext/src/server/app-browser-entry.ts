@@ -32,6 +32,7 @@ import {
   applyAppRouterScrollFallback,
   getClientNavigationRenderContext,
   getBfcacheIdMapContext,
+  getMountedSlotsHeader,
   getPrefetchCache,
   hasPrefetchCacheEntryForNavigation,
   invalidatePrefetchCache,
@@ -72,6 +73,7 @@ import {
   getPendingAppRouterScrollIntent,
   type AppRouterScrollIntent,
 } from "vinext/shims/app-router-scroll-state";
+import { resolveHybridClientRewriteHref } from "vinext/shims/internal/hybrid-client-route-owner";
 import { installWindowNext, setWindowNextInternalSourcePage } from "../client/window-next.js";
 import {
   chunksToReadableStream,
@@ -169,6 +171,7 @@ import {
   createRscRequestUrl,
   createAuthoritativeRscRequestUrl,
   getVinextRscCompatibilityId,
+  stripRscCacheBustingSearchParam,
   VINEXT_RSC_COMPATIBILITY_ID_HEADER,
   VINEXT_RSC_CONTENT_TYPE,
 } from "./app-rsc-cache-busting.js";
@@ -435,6 +438,29 @@ function clearClientNavigationCaches(): void {
   historyController.invalidateRestorableClientState();
 }
 
+function normalizeBrowserRscUrlForReuse(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    stripRscCacheBustingSearchParam(parsed);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return null;
+  }
+}
+
+function isAlternatePrefetchResponseUrl(
+  responseUrl: string | null | undefined,
+  additionalRscUrls: readonly string[],
+): boolean {
+  const normalizedResponseUrl = normalizeBrowserRscUrlForReuse(responseUrl);
+  if (normalizedResponseUrl === null) return false;
+  return additionalRscUrls.some(
+    (additionalRscUrl) =>
+      normalizeBrowserRscUrlForReuse(additionalRscUrl) === normalizedResponseUrl,
+  );
+}
+
 function isSettledPrefetchCacheEntry(
   entry: PrefetchCacheEntry,
 ): entry is PrefetchCacheEntry & { snapshot: CachedRscResponse } {
@@ -513,6 +539,7 @@ async function learnOptimisticRouteTemplatesFromPrefetchCache(options: {
     if (optimisticRouteTemplateSources.has(sourceKey)) continue;
     if (optimisticRouteTemplateLearning.has(sourceKey)) continue;
     if (!isSettledPrefetchCacheEntry(entry)) continue;
+    if (entry.prefetchKind === "route-tree") continue;
 
     const promise = learnOptimisticRouteTemplateFromPrefetch({
       cacheKey,
@@ -1087,9 +1114,19 @@ function BrowserRoot({
   }, [treeState.elements]);
 
   useLayoutEffect(() => {
-    setMountedSlotsHeader(getMountedSlotIdsHeader(stateRef.current.elements));
+    const previousMountedSlotsHeader = getMountedSlotsHeader();
+    const nextMountedSlotsHeader = getMountedSlotIdsHeader(stateRef.current.elements);
+    setMountedSlotsHeader(nextMountedSlotsHeader);
     removeStylesheetLinksCoveredByInlineCss();
-    getNavigationRuntime()?.functions.pingVisibleLinks?.();
+    if (previousMountedSlotsHeader === nextMountedSlotsHeader) {
+      return;
+    }
+    const pingTimer = window.setTimeout(() => {
+      getNavigationRuntime()?.functions.pingVisibleLinks?.();
+    }, 0);
+    return () => {
+      window.clearTimeout(pingTimer);
+    };
   }, [treeState.elements]);
 
   useLayoutEffect(() => {
@@ -1741,9 +1778,19 @@ function bootstrapHydration(
           renderMode:
             navigationKind === "refresh" ? APP_RSC_RENDER_MODE_REFRESH_PRESERVE_UI : undefined,
         });
-        const rscUrl = options?.disableOptimisticRouteShell
-          ? createAuthoritativeRscRequestUrl(url.pathname + url.search, requestHeaders)
-          : await createRscRequestUrl(url.pathname + url.search, requestHeaders);
+        const createNavigationRscRequestUrl = (href: string) =>
+          options?.disableOptimisticRouteShell
+            ? createAuthoritativeRscRequestUrl(href, requestHeaders)
+            : createRscRequestUrl(href, requestHeaders);
+        const rscUrl = await createNavigationRscRequestUrl(url.pathname + url.search);
+        const rewrittenNavigationHref =
+          navigationKind === "navigate"
+            ? resolveHybridClientRewriteHref(currentHref, __basePath)
+            : null;
+        const additionalPrefetchRscUrls =
+          rewrittenNavigationHref && rewrittenNavigationHref !== currentHref
+            ? [await createNavigationRscRequestUrl(rewrittenNavigationHref)]
+            : [];
         const visitedResponseCandidate = shouldBypassNavigationCache
           ? {
               cacheKey: AppElementsWire.encodeCacheKey(rscUrl, requestInterceptionContext),
@@ -1780,7 +1827,10 @@ function bootstrapHydration(
             rscUrl,
             requestInterceptionContext,
             mountedSlotsHeader,
-            { notifyInvalidation: false },
+            {
+              additionalRscUrls: additionalPrefetchRscUrls,
+              notifyInvalidation: false,
+            },
           );
         const reuseDecision = navigationPlanner.classifyNavigationReuse({
           bypassNavigationCache: shouldBypassNavigationCache,
@@ -1895,6 +1945,7 @@ function bootstrapHydration(
             requestInterceptionContext,
             mountedSlotsHeader,
             {
+              additionalRscUrls: additionalPrefetchRscUrls,
               shouldConsume: () => browserNavigationController.isCurrentNavigation(navId),
             },
           );
@@ -1902,7 +1953,12 @@ function bootstrapHydration(
           if (prefetchedResponse) {
             navResponse = restoreRscResponse(prefetchedResponse, false);
             navResponseExpiresAt = prefetchedResponse.expiresAt;
-            navResponseUrl = prefetchedResponse.url;
+            navResponseUrl = isAlternatePrefetchResponseUrl(
+              prefetchedResponse.url,
+              additionalPrefetchRscUrls,
+            )
+              ? rscUrl
+              : prefetchedResponse.url;
           }
           if (!navResponse) {
             routeManifest = navigationKind === "navigate" ? getBrowserRouteManifest() : null;
