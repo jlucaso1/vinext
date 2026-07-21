@@ -1,5 +1,48 @@
 # vinext
 
+## 1.0.0-beta.3
+
+### Features
+
+- **Metadata:** support viewport fields and parent resolution (#2644)
+
+### Bug Fixes
+
+#### Shims
+
+- preserve basePath config in NextURL clones (#2647)
+- preserve response cookie metadata (#2635)
+- reject invalid NextResponse JSON bodies (#2634)
+
+#### Misc
+
+- **Metadata:** pass parent to cached resolvers with default or rest p… (#2660)
+- **Link:** interpolate Pages Router dynamic hrefs (#2657)
+- **Init:** complete an existing Cloudflare config instead of only adding to it (#2653)
+- **i18n:** align Accept-Language locale selection (#2648)
+- **Metadata:** pass parent to regular metadata resolvers (#2646)
+- **Fonts:** keep immutable font assets query-free (#2605)
+- **Font Google:** share SSR collection state via globalThis (#2607)
+- **Pages:** isolate on-demand revalidation requests (#2495)
+- **Server:** defer after callbacks until response close (#2649)
+- **App Router:** stream nested loading boundaries (#2641)
+- honor custom TypeScript config path (#2633)
+- **Headers:** retain mutable cookie metadata (#2636)
+- **Build:** support package validation on Windows (#2638)
+
+### Performance
+
+- **Build:** split react-dom/server into its own client chunk (#2604)
+
+### Contributors
+
+- @akim136
+- @blitss
+- @Boyeep
+- @james-elicx
+- @piffie
+- @ponharu
+
 ## 1.0.0-beta.2
 
 ### Features
